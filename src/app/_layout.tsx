@@ -1,14 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { useRouter } from 'expo-router';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { storageGet, storageSet } from '@/lib/storage';
 import { scheduleNotifications } from '@/lib/notification-tasks';
 
-// Set notification handler so alerts show when app is in foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -45,16 +45,29 @@ const customDark = {
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Re-schedule notifications if they were enabled before (e.g. after reboot)
-    storageGet<{ enabled: boolean; enabledIds: string[]; weeklyWeighIn: boolean }>(
-      '@notifications/settings'
-    ).then((saved) => {
-      if (saved?.enabled) {
-        scheduleNotifications(saved.enabledIds, saved.weeklyWeighIn).catch(() => {});
+    async function init() {
+      // Re-schedule notifications if previously enabled
+      storageGet<{ enabled: boolean; enabledIds: string[]; weeklyWeighIn: boolean }>(
+        '@notifications/settings'
+      ).then((saved) => {
+        if (saved?.enabled) {
+          scheduleNotifications(saved.enabledIds, saved.weeklyWeighIn).catch(() => {});
+        }
+      });
+
+      // Check onboarding state — redirect to /onboarding if not done
+      const onboardingComplete = await storageGet<boolean>('@onboarding/complete');
+      setReady(true);
+      if (!onboardingComplete) {
+        setTimeout(() => router.replace('/onboarding' as any), 100);
       }
-    });
+    }
+
+    init();
   }, []);
 
   return (

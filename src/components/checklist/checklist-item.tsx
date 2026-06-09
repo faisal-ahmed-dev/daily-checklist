@@ -3,17 +3,19 @@ import { AppColors } from '@/constants/theme';
 import type { ChecklistItem } from '@/constants/checklist-data';
 
 type Props = {
-  item: ChecklistItem;
+  item: ChecklistItem & { isBuiltIn?: boolean };
   checked: boolean;
   onToggle: () => void;
+  onLongPress?: () => void;
 };
 
-export function ChecklistItemRow({ item, checked, onToggle }: Props) {
+export function ChecklistItemRow({ item, checked, onToggle, onLongPress }: Props) {
   const isAvoid = !!item.avoid;
 
   return (
     <Pressable
       onPress={onToggle}
+      onLongPress={onLongPress}
       style={({ pressed }) => [
         styles.item,
         isAvoid ? styles.avoidItem : styles.doItem,

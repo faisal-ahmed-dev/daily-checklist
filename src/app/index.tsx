@@ -1,206 +1,273 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Animated,
+  Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFonts, Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
-import { DMSans_400Regular, DMSans_500Medium } from '@expo-google-fonts/dm-sans';
+import { DMSans_400Regular } from '@expo-google-fonts/dm-sans';
 
-import {
-  CHECKLIST_SECTIONS,
-  MOTIVATIONAL_QUOTES,
-  getActiveSection,
-  getNowFocusText,
-  TOTAL_ITEMS,
-} from '@/constants/checklist-data';
-import { AppColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { greetingText, prettyDate, dayOfYear } from '@/lib/date-utils';
-import { useChecklist } from '@/hooks/use-checklist';
+import { AppColors, BottomTabInset, MaxContentWidth } from '@/constants/theme';
+import { useDynamicChecklist } from '@/hooks/use-dynamic-checklist';
+import { useWater } from '@/hooks/use-water';
+import { useDailyLogs } from '@/hooks/use-daily-logs';
+import { usePedometer } from '@/hooks/use-pedometer';
 import { useStreak } from '@/hooks/use-streak';
-import { ChecklistSectionBlock } from '@/components/checklist/checklist-section';
-import { WaterTracker } from '@/components/checklist/water-tracker';
-import { FastingTimer } from '@/components/checklist/fasting-timer';
+import { storageGet } from '@/lib/storage';
+import { greetingText, prettyDate } from '@/lib/date-utils';
+import { VitalsRow } from '@/components/checklist/vitals-row';
+import { AccordionSection } from '@/components/checklist/checklist-section';
+import type { MoodLevel } from '@/hooks/use-daily-logs';
 
-export default function ChecklistScreen() {
-  const [fontsLoaded] = useFonts({
-    Fraunces_600SemiBold,
-    DMSans_400Regular,
-    DMSans_500Medium,
+const NAME_KEY = '@user/name';
+
+function getActiveSection(sections: { key: string; start: number; end: number }[]): string | null {
+  const hour = new Date().getHours();
+  for (const s of sections) {
+    if (s.start >= 0 && hour >= s.start && hour < s.end) return s.key;
+  }
+  return null;
+}
+
+type AddItemState = {
+  visible: boolean;
+  sectionKey: string;
+  main: string;
+  sub: string;
+  avoid: boolean;
+};
+
+export default function TodayScreen() {
+  const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, DMSans_400Regular });
+  const [userName, setUserName] = useState('');
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [addModal, setAddModal] = useState<AddItemState>({
+    visible: false, sectionKey: '', main: '', sub: '', avoid: false,
   });
 
-  const { completed, toggle, reset, doneCount, totalCount, allDone, progressPct } = useChecklist();
+  const {
+    sections,
+    completed,
+    toggle,
+    reset,
+    addItem,
+    deleteItem,
+    doneCount,
+    totalCount,
+    progressPct,
+    allDone,
+    loaded,
+  } = useDynamicChecklist();
+
+  const { glasses, goal: waterGoal, addGlass, setGlassesTo } = useWater();
+  const { log, setSleep, setMood } = useDailyLogs();
+  const { steps, goal: stepGoal, setManualSteps } = usePedometer();
   const { streak, markComplete } = useStreak();
-  const [nowText, setNowText] = useState(getNowFocusText());
-  const [clock, setClock] = useState(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
-  const [activeSection, setActiveSection] = useState<string | null>(getActiveSection());
-  const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const tick = setInterval(() => {
-      setNowText(getNowFocusText());
-      setClock(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
-      setActiveSection(getActiveSection());
-    }, 60000);
-    return () => clearInterval(tick);
+    storageGet<string>(NAME_KEY).then((n) => {
+      setUserName(n ?? '');
+    });
   }, []);
 
+  // Auto-expand active section on load
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: progressPct,
-      duration: 350,
-      useNativeDriver: false,
-    }).start();
-  }, [progressPct]);
+    if (!loaded) return;
+    const activeKey = getActiveSection(sections);
+    if (activeKey) {
+      setExpandedSections(new Set([activeKey]));
+    } else if (sections.length > 0) {
+      setExpandedSections(new Set([sections[0].key]));
+    }
+  }, [loaded]);
 
+  // Mark streak complete when all done
   useEffect(() => {
     if (allDone) markComplete();
   }, [allDone]);
 
-  const quote = MOTIVATIONAL_QUOTES[dayOfYear() % MOTIVATIONAL_QUOTES.length];
-
   if (!fontsLoaded) return null;
+
+  const activeKey = getActiveSection(sections);
+
+  function toggleSection(key: string) {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function openAddModal(sectionKey: string) {
+    setAddModal({ visible: true, sectionKey, main: '', sub: '', avoid: false });
+  }
+
+  function closeAddModal() {
+    setAddModal((prev) => ({ ...prev, visible: false }));
+  }
+
+  async function confirmAddItem() {
+    if (!addModal.main.trim()) return;
+    await addItem(addModal.sectionKey, addModal.main.trim(), addModal.sub.trim(), addModal.avoid);
+    closeAddModal();
+  }
+
+  function handleResetChecklist() {
+    Alert.alert('Reset today?', 'This will clear all checked items for today.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reset', style: 'destructive', onPress: reset },
+    ]);
+  }
+
+  const progressPctDisplay = Math.round(progressPct * 100);
 
   return (
     <View style={styles.screen}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: BottomTabInset + Spacing.four },
-        ]}
+        contentContainerStyle={[styles.content, { paddingBottom: BottomTabInset + 80 }]}
         showsVerticalScrollIndicator={false}>
         <SafeAreaView edges={['top']}>
           {/* Header */}
-          <View style={styles.head}>
-            <Text style={styles.greeting}>{greetingText()}</Text>
-            <Text style={styles.date}>{prettyDate()}</Text>
-          </View>
-
-          {/* Right Now Banner */}
-          <View style={styles.nowBanner}>
-            <View style={styles.nowLabel}>
-              <View style={styles.dot} />
-              <Text style={styles.nowLabelText}>RIGHT NOW</Text>
-            </View>
-            <Text style={styles.nowFocus}>{nowText}</Text>
-            <Text style={styles.nowClock}>{clock}</Text>
-          </View>
-
-          {/* Stats Row */}
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text style={styles.statLabel}>STREAK</Text>
-              <Text style={styles.statBig}>
-                {streak} <Text style={styles.statUnit}>days</Text>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.greeting}>
+                {greetingText()}{userName ? `, ${userName}` : ''}
               </Text>
+              <Text style={styles.date}>{prettyDate()}</Text>
             </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statLabel}>GOAL</Text>
-              <Text style={styles.statBig}>
-                89<Text style={styles.statUnit}> → 70 kg</Text>
-              </Text>
-            </View>
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressCard}>
-            <View style={styles.progressTop}>
-              <Text style={styles.progressTitle}>Today's progress</Text>
-              <Text style={styles.progressCount}>
-                {doneCount}/{totalCount}
-              </Text>
-            </View>
-            <View style={styles.track}>
-              <Animated.View
-                style={[
-                  styles.fill,
-                  {
-                    width: progressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%'],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-            {allDone && (
-              <Text style={styles.doneMsg}>
-                All done for today. This is exactly how 89 becomes 70. See you tomorrow.
-              </Text>
+            {streak > 0 && (
+              <View style={styles.streakBadge}>
+                <Text style={styles.streakText}>🔥 {streak}</Text>
+              </View>
             )}
           </View>
 
-          {/* Quote */}
-          <View style={styles.quoteCard}>
-            <Text style={styles.quoteText}>"{quote}"</Text>
+          {/* Progress bar */}
+          <View style={styles.progressCard}>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>
+                {doneCount}/{totalCount} done
+              </Text>
+              <Text style={styles.progressPct}>{progressPctDisplay}%</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View
+                style={[styles.progressFill, { width: `${progressPctDisplay}%` }]}
+              />
+            </View>
           </View>
 
-          {/* Fasting Timer */}
-          <FastingTimer durationHours={16} />
+          {/* Quick Vitals Row */}
+          <VitalsRow
+            waterGlasses={glasses}
+            waterGoal={waterGoal}
+            steps={steps}
+            stepGoal={stepGoal}
+            sleepHours={log.sleepHours}
+            mood={log.mood}
+            onAddWater={addGlass}
+            onSetWater={setGlassesTo}
+            onSetSteps={setManualSteps}
+            onSetSleep={setSleep}
+            onSetMood={(m: MoodLevel) => setMood(m)}
+          />
 
-          {/* Water Tracker */}
-          <WaterTracker />
-
-          {/* Checklist */}
-          {CHECKLIST_SECTIONS.map((section) => (
-            <ChecklistSectionBlock
+          {/* Accordion Checklist */}
+          {sections.map((section) => (
+            <AccordionSection
               key={section.key}
               section={section}
               completed={completed}
-              isActive={activeSection === section.key}
-              onToggle={toggle}
+              isActive={section.key === activeKey}
+              isExpanded={expandedSections.has(section.key)}
+              onToggleExpand={() => toggleSection(section.key)}
+              onToggleItem={toggle}
+              onAddItem={() => openAddModal(section.key)}
+              onDeleteItem={(id, isBuiltIn) => {
+                Alert.alert(
+                  'Remove item?',
+                  isBuiltIn ? 'This built-in item will be hidden.' : 'This custom item will be deleted.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Remove', style: 'destructive', onPress: () => deleteItem(id, isBuiltIn) },
+                  ]
+                );
+              }}
             />
           ))}
 
-          {/* Alarm reference */}
-          <View style={styles.alarmCard}>
-            <Text style={styles.alarmTitle}>Recommended alarm times</Text>
-            <Text style={styles.alarmSub}>
-              Notifications are scheduled automatically. Set these as backup phone alarms.
-            </Text>
-            {[
-              { time: '6:00 AM', label: 'Morning walk before getting ready' },
-              { time: '10:00 AM', label: 'Rong cha — not Nescafe' },
-              { time: '1:00 PM', label: 'Lunch — 1 cup rice max + salad' },
-              { time: '4:00 PM', label: 'Healthy snack — not Nescafe' },
-              { time: '8:30 PM', label: 'Dinner now, then a 20-min walk' },
-              { time: '10:30 PM', label: 'Wind down — sleep 7+ hours' },
-            ].map((a, i) => (
-              <View
-                key={i}
-                style={[styles.alarmRow, i < 5 && styles.alarmRowBorder]}>
-                <Text style={styles.alarmTime}>{a.time}</Text>
-                <Text style={styles.alarmLabel}>{a.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Reset */}
-          <View style={styles.resetRow}>
-            <Pressable onPress={reset} style={({ pressed }) => [styles.resetBtn, pressed && styles.resetBtnPressed]}>
-              <Text style={styles.resetText}>Reset today</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.footer}>
-            Checklist resets automatically every morning.{'\n'}
-            Weigh yourself once a week — same day, morning, empty stomach.
-          </Text>
+          {/* Reset button */}
+          <Pressable
+            onPress={handleResetChecklist}
+            style={({ pressed }) => [styles.resetBtn, pressed && styles.pressed]}>
+            <Text style={styles.resetText}>Reset today's checklist</Text>
+          </Pressable>
         </SafeAreaView>
       </ScrollView>
+
+      {/* Add Item Modal */}
+      <Modal
+        visible={addModal.visible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeAddModal}>
+        <Pressable style={styles.modalOverlay} onPress={closeAddModal}>
+          <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Add Item</Text>
+
+            <TextInput
+              style={styles.modalInput}
+              value={addModal.main}
+              onChangeText={(t) => setAddModal((p) => ({ ...p, main: t }))}
+              placeholder="What to do..."
+              placeholderTextColor={AppColors.muted}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.modalInput, styles.modalInputSub]}
+              value={addModal.sub}
+              onChangeText={(t) => setAddModal((p) => ({ ...p, sub: t }))}
+              placeholder="Note / reminder (optional)"
+              placeholderTextColor={AppColors.muted}
+            />
+
+            <Pressable
+              style={styles.avoidToggle}
+              onPress={() => setAddModal((p) => ({ ...p, avoid: !p.avoid }))}>
+              <View style={[styles.checkbox, addModal.avoid && styles.checkboxChecked]}>
+                {addModal.avoid && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.avoidLabel}>Mark as "RESIST" (avoid item)</Text>
+            </Pressable>
+
+            <View style={styles.modalActions}>
+              <Pressable style={styles.cancelBtn} onPress={closeAddModal}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.addBtn, !addModal.main.trim() && styles.addBtnDisabled]}
+                onPress={confirmAddItem}
+                disabled={!addModal.main.trim()}>
+                <Text style={styles.addBtnText}>Add</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: AppColors.cream,
-  },
+  screen: { flex: 1, backgroundColor: AppColors.cream },
   scroll: { flex: 1 },
   content: {
     paddingHorizontal: 14,
@@ -208,178 +275,139 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
   },
-  head: { marginBottom: 14, marginTop: 4 },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    marginBottom: 14,
+  },
   greeting: {
     fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: '600',
-    letterSpacing: -0.5,
-    lineHeight: 36,
     color: AppColors.ink,
   },
-  date: { color: AppColors.muted, fontSize: 14, marginTop: 4 },
-
-  nowBanner: {
-    backgroundColor: AppColors.greenDeep,
-    borderRadius: 18,
-    padding: 15,
-    marginBottom: 16,
-    shadowColor: '#3C321E',
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  nowLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 99,
-    backgroundColor: '#7FD6A4',
-  },
-  nowLabelText: {
-    fontSize: 11,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    fontWeight: '600',
-    color: '#F4EFE2',
-    opacity: 0.7,
-  },
-  nowFocus: {
-    fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 19,
-    fontWeight: '600',
-    color: '#F4EFE2',
-    lineHeight: 24,
-  },
-  nowClock: { fontSize: 13, color: '#F4EFE2', opacity: 0.75, marginTop: 3 },
-
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
-  statCard: {
-    flex: 1,
-    backgroundColor: AppColors.paper,
+  date: { fontSize: 13, color: AppColors.muted, marginTop: 2 },
+  streakBadge: {
+    backgroundColor: AppColors.amberSoft,
     borderWidth: 1,
-    borderColor: AppColors.line,
-    borderRadius: 16,
-    padding: 13,
-    shadowColor: '#3C321E',
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    borderColor: AppColors.amberLine,
+    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
-  statLabel: {
-    fontSize: 11,
-    color: AppColors.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    fontWeight: '600',
-  },
-  statBig: {
-    fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 24,
-    fontWeight: '600',
-    color: AppColors.ink,
-    marginTop: 3,
-  },
-  statUnit: { fontSize: 13, color: AppColors.muted, fontFamily: 'DMSans_400Regular' },
+  streakText: { fontSize: 14, fontWeight: '700', color: AppColors.amber },
 
   progressCard: {
     backgroundColor: AppColors.paper,
     borderWidth: 1,
     borderColor: AppColors.line,
-    borderRadius: 18,
-    padding: 15,
-    marginBottom: 14,
-    shadowColor: '#3C321E',
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  progressTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 9 },
-  progressTitle: { fontWeight: '600', fontSize: 14, color: AppColors.ink },
-  progressCount: {
-    fontFamily: 'Fraunces_600SemiBold',
-    fontWeight: '600',
-    fontSize: 19,
-    color: AppColors.green,
-  },
-  track: { height: 11, backgroundColor: AppColors.greenSoft, borderRadius: 99, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: AppColors.green, borderRadius: 99 },
-  doneMsg: {
-    marginTop: 11,
-    fontSize: 13.5,
-    color: AppColors.greenDeep,
-    backgroundColor: AppColors.greenSoft,
-    padding: 10,
-    borderRadius: 12,
-  },
-
-  quoteCard: {
-    backgroundColor: AppColors.amberSoft,
-    borderWidth: 1,
-    borderColor: AppColors.amberLine,
     borderRadius: 14,
     padding: 12,
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  quoteText: {
-    fontSize: 13,
-    color: AppColors.amberDeep,
-    fontStyle: 'italic',
-    lineHeight: 19,
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  progressLabel: { fontSize: 13, fontWeight: '600', color: AppColors.ink },
+  progressPct: { fontSize: 13, fontWeight: '700', color: AppColors.green },
+  progressTrack: {
+    height: 6,
+    backgroundColor: AppColors.line,
+    borderRadius: 99,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: AppColors.green,
+    borderRadius: 99,
   },
 
-  alarmCard: {
-    backgroundColor: AppColors.paper,
+  resetBtn: {
+    alignSelf: 'center',
     borderWidth: 1,
-    borderColor: AppColors.line,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 8,
-    shadowColor: '#3C321E',
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    borderColor: AppColors.amberLine,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 12,
   },
-  alarmTitle: {
+  resetText: { fontSize: 13, color: AppColors.amber, fontWeight: '500' },
+  pressed: { opacity: 0.7 },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: AppColors.paper,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+    gap: 12,
+  },
+  modalTitle: {
     fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '600',
     color: AppColors.ink,
     marginBottom: 4,
   },
-  alarmSub: { fontSize: 12.5, color: AppColors.muted, marginBottom: 11 },
-  alarmRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  alarmRowBorder: { borderBottomWidth: 1, borderBottomColor: AppColors.line },
-  alarmTime: {
-    fontFamily: 'Fraunces_600SemiBold',
-    fontWeight: '600',
-    fontSize: 15,
-    color: AppColors.green,
-    width: 78,
-  },
-  alarmLabel: { flex: 1, fontSize: 13.5, color: AppColors.ink },
-
-  resetRow: { alignItems: 'center', marginTop: 10 },
-  resetBtn: {
+  modalInput: {
     borderWidth: 1,
     borderColor: AppColors.line,
-    borderRadius: 99,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: AppColors.ink,
+    backgroundColor: AppColors.cream,
   },
-  resetBtnPressed: { backgroundColor: AppColors.cream },
-  resetText: { fontSize: 13, color: AppColors.muted },
-
-  footer: {
-    textAlign: 'center',
-    color: AppColors.muted,
-    fontSize: 12,
-    marginTop: 22,
-    lineHeight: 19,
-    marginBottom: 8,
+  modalInputSub: { fontSize: 13 },
+  avoidToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
   },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: AppColors.amberLine,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppColors.amberSoft,
+  },
+  checkboxChecked: { backgroundColor: AppColors.amber, borderColor: AppColors.amber },
+  checkmark: { color: AppColors.white, fontSize: 12, fontWeight: '700' },
+  avoidLabel: { fontSize: 13, color: AppColors.ink },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  cancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: AppColors.line,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: AppColors.cream,
+  },
+  cancelText: { fontSize: 14, color: AppColors.muted, fontWeight: '500' },
+  addBtn: {
+    flex: 2,
+    backgroundColor: AppColors.green,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  addBtnDisabled: { backgroundColor: AppColors.greenLine },
+  addBtnText: { fontSize: 14, color: AppColors.white, fontWeight: '700' },
 });

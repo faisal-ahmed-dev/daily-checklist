@@ -17,13 +17,16 @@ export default function AppTabs() {
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>Checklist</TabButton>
+            <TabButton>Today</TabButton>
+          </TabTrigger>
+          <TabTrigger name="monitor" href="/monitor" asChild>
+            <TabButton>Monitor</TabButton>
           </TabTrigger>
           <TabTrigger name="weight-log" href="/weight-log" asChild>
             <TabButton>Weight</TabButton>
           </TabTrigger>
-          <TabTrigger name="analytics" href="/analytics" asChild>
-            <TabButton>Analytics</TabButton>
+          <TabTrigger name="ai" href="/ai" asChild>
+            <TabButton>AI</TabButton>
           </TabTrigger>
           <TabTrigger name="settings" href="/settings" asChild>
             <TabButton>Settings</TabButton>

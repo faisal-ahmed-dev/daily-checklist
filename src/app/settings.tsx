@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -10,17 +10,30 @@ import { AppColors, BottomTabInset, MaxContentWidth, Spacing } from '@/constants
 import { useNotifications } from '@/hooks/use-notifications';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useWeightLog } from '@/hooks/use-weight-log';
-import { useChecklist } from '@/hooks/use-checklist';
+import { useDynamicChecklist } from '@/hooks/use-dynamic-checklist';
+import { useAiCoach } from '@/hooks/use-ai-coach';
 import { NOTIFICATION_SLOTS } from '@/lib/notification-tasks';
+import type { AiProvider } from '@/hooks/use-ai-coach';
 
 export default function SettingsScreen() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, DMSans_400Regular });
   const { settings, requestAndEnable, disable, toggleSlot, toggleWeighIn } = useNotifications();
   const { profile, updateProfile } = useUserProfile();
   const { entries } = useWeightLog();
-  const { reset: resetChecklist } = useChecklist();
+  const { reset: resetChecklist } = useDynamicChecklist();
+  const { config: aiConfig, updateConfig: updateAiConfig, providerPresets } = useAiCoach();
 
   const [age, setAge] = useState(String(profile.ageYears));
+  const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey);
+  const [customBaseUrl, setCustomBaseUrl] = useState(aiConfig.baseUrl);
+  const [customModel, setCustomModel] = useState(aiConfig.model);
+
+  // Sync local AI input state when config loads from storage
+  useEffect(() => {
+    setApiKeyInput(aiConfig.apiKey);
+    setCustomBaseUrl(aiConfig.baseUrl);
+    setCustomModel(aiConfig.model);
+  }, [aiConfig.apiKey]);
 
   if (!fontsLoaded) return null;
 
@@ -219,12 +232,94 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
 
+          {/* AI Coach */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>AI Coach</Text>
+            <Text style={[styles.rowSub, { marginBottom: 12 }]}>
+              Optional — adds AI chat to the AI tab. Rule-based insights work without a key.
+            </Text>
+
+            {/* Provider picker */}
+            <Text style={styles.sectionLabel}>Provider</Text>
+            <View style={styles.segmented}>
+              {(['grok', 'groq', 'custom'] as AiProvider[]).map((p) => (
+                <Pressable
+                  key={p}
+                  onPress={() => updateAiConfig({ provider: p })}
+                  style={[styles.segment, aiConfig.provider === p && styles.segmentActive]}>
+                  <Text style={[styles.segmentText, aiConfig.provider === p && styles.segmentTextActive]}>
+                    {p === 'grok' ? 'Grok (xAI)' : p === 'groq' ? 'Groq/Llama' : 'Custom'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* API Key */}
+            <Text style={styles.fieldLabel}>API Key</Text>
+            <TextInput
+              style={[styles.fieldInput, { width: '100%', marginTop: 6 }]}
+              value={apiKeyInput}
+              onChangeText={setApiKeyInput}
+              onEndEditing={() => updateAiConfig({ apiKey: apiKeyInput })}
+              placeholder="Paste your API key here"
+              placeholderTextColor={AppColors.muted}
+              secureTextEntry
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+
+            {/* Model name (auto-filled for grok/groq) */}
+            <View style={styles.divider} />
+            <Text style={styles.fieldLabel}>Model</Text>
+            <TextInput
+              style={[styles.fieldInput, { width: '100%', marginTop: 6 }]}
+              value={aiConfig.model}
+              onChangeText={(t) => {
+                setCustomModel(t);
+                updateAiConfig({ model: t });
+              }}
+              placeholder="e.g. grok-3-mini"
+              placeholderTextColor={AppColors.muted}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+
+            {/* Base URL (only for custom) */}
+            {aiConfig.provider === 'custom' && (
+              <>
+                <View style={styles.divider} />
+                <Text style={styles.fieldLabel}>Base URL</Text>
+                <TextInput
+                  style={[styles.fieldInput, { width: '100%', marginTop: 6 }]}
+                  value={aiConfig.baseUrl}
+                  onChangeText={(t) => {
+                    setCustomBaseUrl(t);
+                    updateAiConfig({ baseUrl: t });
+                  }}
+                  placeholder="https://api.example.com/v1"
+                  placeholderTextColor={AppColors.muted}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              </>
+            )}
+
+            {aiConfig.provider !== 'custom' && (
+              <Text style={[styles.rowSub, { marginTop: 8 }]}>
+                Endpoint: {providerPresets[aiConfig.provider].baseUrl}
+              </Text>
+            )}
+          </View>
+
           {/* About */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>About</Text>
             <Text style={styles.about}>
-              Daily Checklist v1.0{'\n'}
-              Personal weight loss tracker: 89 → 70 kg{'\n'}
+              Daily Health Tracker v2.0{'\n'}
+              Comprehensive weight loss monitor{'\n'}
               Built with Expo + React Native
             </Text>
           </View>

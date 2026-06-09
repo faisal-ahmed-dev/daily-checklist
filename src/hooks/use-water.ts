@@ -30,9 +30,15 @@ export function useWater() {
     });
   }, []);
 
+  const setGlassesTo = useCallback((count: number) => {
+    const next = Math.min(Math.max(0, count), 20);
+    setGlasses(next);
+    storageSet(PREFIX + todayKey(), next);
+  }, []);
+
   const mlDrunk = glasses * 250;
   const mlGoal = GOAL * 250;
   const done = glasses >= GOAL;
 
-  return { glasses, addGlass, removeGlass, mlDrunk, mlGoal, goal: GOAL, done };
+  return { glasses, addGlass, removeGlass, setGlassesTo, mlDrunk, mlGoal, goal: GOAL, done };
 }
