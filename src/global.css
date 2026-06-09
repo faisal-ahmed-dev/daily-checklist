@@ -1,0 +1,6 @@
+:root {
+  --font-display: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-rounded: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+}
