@@ -6,13 +6,10 @@ import { MOOD_OPTIONS, SLEEP_OPTIONS } from '@/hooks/use-daily-logs';
 type Props = {
   waterGlasses: number;
   waterGoal: number;
-  steps: number;
-  stepGoal: number;
   sleepHours: number | null;
   mood: MoodLevel | null;
   onAddWater: () => void;
   onSetWater: (glasses: number) => void;
-  onSetSteps: (steps: number) => void;
   onSetSleep: (hours: number) => void;
   onSetMood: (mood: MoodLevel) => void;
 };
@@ -20,13 +17,10 @@ type Props = {
 export function VitalsRow({
   waterGlasses,
   waterGoal,
-  steps,
-  stepGoal,
   sleepHours,
   mood,
   onAddWater,
   onSetWater,
-  onSetSteps,
   onSetSleep,
   onSetMood,
 }: Props) {
@@ -50,28 +44,6 @@ export function VitalsRow({
         onPress: () => onSetWater(n),
       }));
       Alert.alert('Set water glasses', '', opts, { cancelable: true });
-    }
-  }
-
-  function handleStepsTap() {
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        'Set steps',
-        'Enter step count (manual override)',
-        (text) => {
-          const n = parseInt(text, 10);
-          if (!isNaN(n) && n >= 0) onSetSteps(n);
-        },
-        'plain-text',
-        String(steps),
-        'numeric'
-      );
-    } else {
-      const opts = [1000, 2000, 3000, 5000, 7000, 8000, 10000].map((n) => ({
-        text: n.toLocaleString(),
-        onPress: () => onSetSteps(n),
-      }));
-      Alert.alert('Set step count (manual)', '', opts, { cancelable: true });
     }
   }
 
@@ -117,17 +89,6 @@ export function VitalsRow({
         <Text style={styles.tileLabel}>glasses</Text>
       </Pressable>
 
-      {/* Steps — tap to set manual */}
-      <Pressable
-        style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
-        onPress={handleStepsTap}>
-        <Text style={styles.tileIcon}>👟</Text>
-        <Text style={styles.tileValue}>
-          {steps >= 1000 ? `${(steps / 1000).toFixed(1)}k` : String(steps)}
-        </Text>
-        <Text style={styles.tileLabel}>/ {(stepGoal / 1000).toFixed(0)}k steps</Text>
-      </Pressable>
-
       {/* Sleep */}
       <Pressable
         style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
@@ -168,7 +129,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   pressed: { opacity: 0.7 },
-  tileIcon: { fontSize: 18 },
+  tileIcon: { fontSize: 17 },
   tileValue: {
     fontSize: 13,
     fontWeight: '700',

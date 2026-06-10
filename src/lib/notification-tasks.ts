@@ -123,6 +123,46 @@ export const NOTIFICATION_SLOTS: NotificationSlot[] = [
     body: 'Gentle stretches before sleep. Reduces cortisol, improves sleep quality.',
   },
   {
+    id: 'water-am',
+    label: '10:30 AM — Hydrate',
+    hour: 10,
+    minute: 30,
+    title: '💧 Drink a glass of water',
+    body: 'Mid-morning hydration. Aim for steady sips through the day.',
+  },
+  {
+    id: 'water-pm',
+    label: '3:30 PM — Hydrate',
+    hour: 15,
+    minute: 30,
+    title: '💧 Water break',
+    body: 'Afternoon glass of water — beats the 4 PM snack craving too.',
+  },
+  {
+    id: 'water-eve',
+    label: '7:30 PM — Hydrate',
+    hour: 19,
+    minute: 30,
+    title: '💧 Evening water',
+    body: 'One more glass before dinner. Keep that hydration up.',
+  },
+  {
+    id: 'step-goal-nudge',
+    label: '3:00 PM — Step check',
+    hour: 15,
+    minute: 0,
+    title: '👟 How are your steps?',
+    body: 'Check your step progress — a short walk now keeps you on track for your goal.',
+  },
+  {
+    id: 'log-weight-mood',
+    label: '9:00 PM — Log the day',
+    hour: 21,
+    minute: 0,
+    title: '📝 Log today',
+    body: "Record today's weight & mood before winding down. Small data, big insight.",
+  },
+  {
     id: 'weigh-in',
     label: '7:00 AM — Weigh-in (Mon only)',
     hour: 7,
@@ -132,14 +172,40 @@ export const NOTIFICATION_SLOTS: NotificationSlot[] = [
   },
 ];
 
+export type SlotTime = { hour: number; minute: number };
+
+export type CustomReminder = {
+  id: string;
+  label: string;
+  title: string;
+  body: string;
+  hour: number;
+  minute: number;
+  enabled: boolean;
+};
+
+export type DailyBriefSetting = { enabled: boolean; hour: number; minute: number };
+
+export type NotifSettings = {
+  enabled: boolean;
+  enabledIds: string[];
+  weeklyWeighIn: boolean;
+  times: Record<string, SlotTime>;
+  custom: CustomReminder[];
+  dailyBrief: DailyBriefSetting;
+};
+
+export const DEFAULT_BRIEF_TIME: SlotTime = { hour: 8, minute: 0 };
+const BRIEF_FALLBACK = "Open the app for today's check-in and focus.";
+
 export async function requestNotificationPermission(): Promise<boolean> {
   const { status } = await Notifications.requestPermissionsAsync();
   return status === 'granted';
 }
 
 export async function scheduleNotifications(
-  enabledIds: string[],
-  weeklyWeighInEnabled: boolean
+  settings: NotifSettings,
+  briefText?: string
 ): Promise<void> {
   await Notifications.cancelAllScheduledNotificationsAsync();
 
@@ -153,30 +219,64 @@ export async function scheduleNotifications(
     }),
   });
 
+  const timeFor = (id: string, slotHour: number, slotMinute: number): SlotTime =>
+    settings.times[id] ?? { hour: slotHour, minute: slotMinute };
+
+  // Built-in slots
   for (const slot of NOTIFICATION_SLOTS) {
     if (slot.id === 'weigh-in') {
-      if (!weeklyWeighInEnabled) continue;
-      // Schedule for every Monday
+      if (!settings.weeklyWeighIn) continue;
+      const t = timeFor(slot.id, slot.hour, slot.minute);
       await Notifications.scheduleNotificationAsync({
         content: { title: slot.title, body: slot.body, sound: true },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
           weekday: 2, // Monday
-          hour: slot.hour,
-          minute: slot.minute,
+          hour: t.hour,
+          minute: t.minute,
         },
       });
     } else {
-      if (!enabledIds.includes(slot.id)) continue;
+      if (!settings.enabledIds.includes(slot.id)) continue;
+      const t = timeFor(slot.id, slot.hour, slot.minute);
       await Notifications.scheduleNotificationAsync({
         content: { title: slot.title, body: slot.body, sound: true },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour: slot.hour,
-          minute: slot.minute,
+          hour: t.hour,
+          minute: t.minute,
         },
       });
     }
+  }
+
+  // Custom user-defined reminders
+  for (const r of settings.custom) {
+    if (!r.enabled) continue;
+    await Notifications.scheduleNotificationAsync({
+      content: { title: r.title || r.label, body: r.body || r.label, sound: true },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: r.hour,
+        minute: r.minute,
+      },
+    });
+  }
+
+  // Daily AI / smart brief
+  if (settings.dailyBrief.enabled) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '📋 Your daily check-in',
+        body: briefText && briefText.trim() ? briefText : BRIEF_FALLBACK,
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour: settings.dailyBrief.hour,
+        minute: settings.dailyBrief.minute,
+      },
+    });
   }
 }
 

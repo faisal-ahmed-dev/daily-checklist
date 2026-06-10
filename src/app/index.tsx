@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFonts, Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans';
+import { useRouter } from 'expo-router';
 
 import { AppColors, BottomTabInset, MaxContentWidth } from '@/constants/theme';
 import { useDynamicChecklist } from '@/hooks/use-dynamic-checklist';
@@ -19,9 +20,15 @@ import { useWater } from '@/hooks/use-water';
 import { useDailyLogs } from '@/hooks/use-daily-logs';
 import { usePedometer } from '@/hooks/use-pedometer';
 import { useStreak } from '@/hooks/use-streak';
+import { useWeightLog } from '@/hooks/use-weight-log';
+import { useNotifications } from '@/hooks/use-notifications';
+import { useAiCoach } from '@/hooks/use-ai-coach';
 import { storageGet } from '@/lib/storage';
 import { greetingText, prettyDate } from '@/lib/date-utils';
+import { scheduleNotifications } from '@/lib/notification-tasks';
+import { generateDailyBrief, fetchAiBrief, type CoachContext } from '@/lib/ai-brief';
 import { VitalsRow } from '@/components/checklist/vitals-row';
+import { StepsCard } from '@/components/checklist/steps-card';
 import { AccordionSection } from '@/components/checklist/checklist-section';
 import type { MoodLevel } from '@/hooks/use-daily-logs';
 
@@ -51,6 +58,8 @@ export default function TodayScreen() {
     visible: false, sectionKey: '', main: '', sub: '', avoid: false,
   });
 
+  const router = useRouter();
+
   const {
     sections,
     completed,
@@ -67,14 +76,55 @@ export default function TodayScreen() {
 
   const { glasses, goal: waterGoal, addGlass, setGlassesTo } = useWater();
   const { log, setSleep, setMood } = useDailyLogs();
-  const { steps, goal: stepGoal, setManualSteps } = usePedometer();
+  const { steps, goal: stepGoal, isAvailable: isStepTracking, goalReached: stepGoalReached, setManualSteps, setGoal: setStepGoal } = usePedometer();
   const { streak, markComplete } = useStreak();
+  const { latestWeight, goalWeight, startWeight, kgToGo } = useWeightLog();
+  const { settings: notifSettings } = useNotifications();
+  const { config: aiConfig, hasApiKey } = useAiCoach();
+  const briefScheduledRef = useRef(false);
 
   useEffect(() => {
     storageGet<string>(NAME_KEY).then((n) => {
       setUserName(n ?? '');
     });
   }, []);
+
+  // Once per session, refresh the "daily brief" notification with up-to-date
+  // (AI-written when a key is set, otherwise rule-based) content.
+  useEffect(() => {
+    if (briefScheduledRef.current) return;
+    if (!loaded || !notifSettings.enabled || !notifSettings.dailyBrief.enabled) return;
+    briefScheduledRef.current = true;
+
+    const ctx: CoachContext = {
+      userName,
+      currentWeight: latestWeight,
+      goalWeight: goalWeight ?? 70,
+      startWeight: startWeight ?? 89,
+      streak,
+      doneCount,
+      totalCount,
+      stepsToday: steps,
+      stepGoal,
+      waterGlasses: glasses,
+      sleepHours: log.sleepHours,
+      weeklyCompletionPcts: [],
+      weakHabits: [],
+      strongHabits: [],
+    };
+
+    (async () => {
+      let briefText = generateDailyBrief(ctx);
+      if (hasApiKey) {
+        try {
+          briefText = await fetchAiBrief(aiConfig, ctx);
+        } catch {
+          // keep rule-based fallback
+        }
+      }
+      await scheduleNotifications(notifSettings, briefText).catch(() => {});
+    })();
+  }, [loaded, notifSettings.enabled, notifSettings.dailyBrief.enabled]);
 
   // Auto-expand active section on load
   useEffect(() => {
@@ -127,6 +177,9 @@ export default function TodayScreen() {
   }
 
   const progressPctDisplay = Math.round(progressPct * 100);
+  const weightPct = latestWeight && goalWeight && latestWeight > goalWeight
+    ? Math.min(1, Math.max(0, (89 - latestWeight) / (89 - goalWeight)))
+    : latestWeight && goalWeight && latestWeight <= goalWeight ? 1 : 0;
 
   return (
     <View style={styles.screen}>
@@ -137,7 +190,7 @@ export default function TodayScreen() {
         <SafeAreaView edges={['top']}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.greeting}>
                 {greetingText()}{userName ? `, ${userName}` : ''}
               </Text>
@@ -150,32 +203,57 @@ export default function TodayScreen() {
             )}
           </View>
 
+          {/* Weight Progress Strip */}
+          {latestWeight != null && (
+            <View style={styles.weightStrip}>
+              <View style={styles.weightLeft}>
+                <Text style={styles.weightNow}>{latestWeight.toFixed(1)} kg</Text>
+                <Text style={styles.weightSub}>current</Text>
+              </View>
+              <View style={styles.weightBar}>
+                <View style={styles.weightTrack}>
+                  <View style={[styles.weightFill, { width: `${Math.round(weightPct * 100)}%` }]} />
+                </View>
+                <Text style={styles.weightKgLeft}>
+                  {kgToGo > 0 ? `−${kgToGo.toFixed(1)} kg to go` : '🎉 Goal reached!'}
+                </Text>
+              </View>
+              <View style={styles.weightRight}>
+                <Text style={styles.weightGoal}>{goalWeight ?? 70} kg</Text>
+                <Text style={styles.weightSub}>goal</Text>
+              </View>
+            </View>
+          )}
+
           {/* Progress bar */}
           <View style={styles.progressCard}>
             <View style={styles.progressRow}>
-              <Text style={styles.progressLabel}>
-                {doneCount}/{totalCount} done
-              </Text>
+              <Text style={styles.progressLabel}>{doneCount}/{totalCount} done</Text>
               <Text style={styles.progressPct}>{progressPctDisplay}%</Text>
             </View>
             <View style={styles.progressTrack}>
-              <View
-                style={[styles.progressFill, { width: `${progressPctDisplay}%` }]}
-              />
+              <View style={[styles.progressFill, { width: `${progressPctDisplay}%` }]} />
             </View>
           </View>
+
+          {/* Steps — auto-tracked card */}
+          <StepsCard
+            steps={steps}
+            goal={stepGoal}
+            isStepTracking={isStepTracking}
+            goalReached={stepGoalReached}
+            onSetSteps={setManualSteps}
+            onSetGoal={setStepGoal}
+          />
 
           {/* Quick Vitals Row */}
           <VitalsRow
             waterGlasses={glasses}
             waterGoal={waterGoal}
-            steps={steps}
-            stepGoal={stepGoal}
             sleepHours={log.sleepHours}
             mood={log.mood}
             onAddWater={addGlass}
             onSetWater={setGlassesTo}
-            onSetSteps={setManualSteps}
             onSetSleep={setSleep}
             onSetMood={(m: MoodLevel) => setMood(m)}
           />
@@ -212,6 +290,14 @@ export default function TodayScreen() {
           </Pressable>
         </SafeAreaView>
       </ScrollView>
+
+      {/* Floating AI Chat Button */}
+      <Pressable
+        style={[styles.fab, { bottom: BottomTabInset + 14 }]}
+        onPress={() => router.navigate('/ai' as any)}>
+        <Text style={styles.fabEmoji}>🤖</Text>
+        <Text style={styles.fabLabel}>AI</Text>
+      </Pressable>
 
       {/* Add Item Modal */}
       <Modal
@@ -270,7 +356,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: AppColors.cream },
   scroll: { flex: 1 },
   content: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     width: '100%',
@@ -281,42 +367,76 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginTop: 4,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   greeting: {
     fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '600',
     color: AppColors.ink,
   },
-  date: { fontSize: 13, color: AppColors.muted, marginTop: 2 },
+  date: { fontSize: 12, color: AppColors.muted, marginTop: 1 },
   streakBadge: {
     backgroundColor: AppColors.amberSoft,
     borderWidth: 1,
     borderColor: AppColors.amberLine,
     borderRadius: 99,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  streakText: { fontSize: 14, fontWeight: '700', color: AppColors.amber },
+  streakText: { fontSize: 13, fontWeight: '700', color: AppColors.amber },
+
+  // Weight progress strip
+  weightStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: AppColors.paper,
+    borderWidth: 1,
+    borderColor: AppColors.line,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    gap: 10,
+  },
+  weightLeft: { alignItems: 'center', minWidth: 44 },
+  weightRight: { alignItems: 'center', minWidth: 44 },
+  weightNow: { fontSize: 13, fontWeight: '700', color: AppColors.ink },
+  weightGoal: { fontSize: 13, fontWeight: '700', color: AppColors.green },
+  weightSub: { fontSize: 9, color: AppColors.muted, marginTop: 1 },
+  weightBar: { flex: 1, alignItems: 'center', gap: 3 },
+  weightTrack: {
+    height: 5,
+    width: '100%',
+    backgroundColor: AppColors.line,
+    borderRadius: 99,
+    overflow: 'hidden',
+  },
+  weightFill: {
+    height: '100%',
+    backgroundColor: AppColors.green,
+    borderRadius: 99,
+  },
+  weightKgLeft: { fontSize: 10, color: AppColors.muted },
 
   progressCard: {
     backgroundColor: AppColors.paper,
     borderWidth: 1,
     borderColor: AppColors.line,
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 8,
   },
   progressRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 5,
   },
-  progressLabel: { fontSize: 13, fontWeight: '600', color: AppColors.ink },
-  progressPct: { fontSize: 13, fontWeight: '700', color: AppColors.green },
+  progressLabel: { fontSize: 12, fontWeight: '600', color: AppColors.ink },
+  progressPct: { fontSize: 12, fontWeight: '700', color: AppColors.green },
   progressTrack: {
-    height: 6,
+    height: 5,
     backgroundColor: AppColors.line,
     borderRadius: 99,
     overflow: 'hidden',
@@ -327,17 +447,36 @@ const styles = StyleSheet.create({
     borderRadius: 99,
   },
 
+  // FAB
+  fab: {
+    position: 'absolute',
+    right: 16,
+    backgroundColor: AppColors.green,
+    borderRadius: 28,
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: AppColors.greenDeep,
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  fabEmoji: { fontSize: 22 },
+  fabLabel: { fontSize: 9, color: AppColors.white, fontWeight: '700', marginTop: -1 },
+
   resetBtn: {
     alignSelf: 'center',
     borderWidth: 1,
     borderColor: AppColors.amberLine,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 12,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    marginTop: 6,
+    marginBottom: 8,
   },
-  resetText: { fontSize: 13, color: AppColors.amber, fontWeight: '500' },
+  resetText: { fontSize: 12, color: AppColors.amber, fontWeight: '500' },
   pressed: { opacity: 0.7 },
 
   modalOverlay: {
@@ -349,24 +488,24 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.paper,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
-    gap: 12,
+    padding: 22,
+    paddingBottom: 38,
+    gap: 10,
   },
   modalTitle: {
     fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     color: AppColors.ink,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   modalInput: {
     borderWidth: 1,
     borderColor: AppColors.line,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
     color: AppColors.ink,
     backgroundColor: AppColors.cream,
   },
@@ -375,12 +514,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 5,
     borderWidth: 2,
     borderColor: AppColors.amberLine,
     alignItems: 'center',
@@ -388,26 +527,26 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.amberSoft,
   },
   checkboxChecked: { backgroundColor: AppColors.amber, borderColor: AppColors.amber },
-  checkmark: { color: AppColors.white, fontSize: 12, fontWeight: '700' },
-  avoidLabel: { fontSize: 13, color: AppColors.ink },
-  modalActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  checkmark: { color: AppColors.white, fontSize: 11, fontWeight: '700' },
+  avoidLabel: { fontSize: 12, color: AppColors.ink },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
   cancelBtn: {
     flex: 1,
     borderWidth: 1,
     borderColor: AppColors.line,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
     backgroundColor: AppColors.cream,
   },
-  cancelText: { fontSize: 14, color: AppColors.muted, fontWeight: '500' },
+  cancelText: { fontSize: 13, color: AppColors.muted, fontWeight: '500' },
   addBtn: {
     flex: 2,
     backgroundColor: AppColors.green,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
   },
   addBtnDisabled: { backgroundColor: AppColors.greenLine },
-  addBtnText: { fontSize: 14, color: AppColors.white, fontWeight: '700' },
+  addBtnText: { fontSize: 13, color: AppColors.white, fontWeight: '700' },
 });

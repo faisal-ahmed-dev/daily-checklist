@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { storageGet, storageSet } from '@/lib/storage';
+import { generateDailyBrief, type CoachContext } from '@/lib/ai-brief';
+
+export type { CoachContext } from '@/lib/ai-brief';
 
 export type AiProvider = 'grok' | 'groq' | 'custom';
 
@@ -14,23 +17,6 @@ export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-};
-
-export type CoachContext = {
-  userName: string;
-  currentWeight: number | null;
-  goalWeight: number;
-  startWeight: number;
-  streak: number;
-  doneCount: number;
-  totalCount: number;
-  stepsToday: number;
-  stepGoal: number;
-  waterGlasses: number;
-  sleepHours: number | null;
-  weeklyCompletionPcts: number[];
-  weakHabits: string[];
-  strongHabits: string[];
 };
 
 const PROVIDER_PRESETS: Record<AiProvider, { baseUrl: string; model: string }> = {
@@ -85,24 +71,30 @@ export function useAiCoach() {
               100
           )
         : 0;
+    const calorieInfo = ctx.caloriesConsumed !== undefined && ctx.calorieTarget !== undefined
+      ? `- Calories today: ${ctx.caloriesConsumed} consumed / ${ctx.calorieTarget} target (${ctx.calorieTarget - ctx.caloriesConsumed} kcal remaining)`
+      : '';
+
     return `You are a personal weight loss and fitness coach for ${ctx.userName}.
 
 User data:
 - Weight: ${ctx.currentWeight ?? 'unknown'}kg (goal: ${ctx.goalWeight}kg, started: ${ctx.startWeight}kg)
 - Today's checklist: ${ctx.doneCount}/${ctx.totalCount} items done
 - Streak: ${ctx.streak} consecutive days
-- Steps today: ${ctx.stepsToday} / ${ctx.stepGoal} goal
+- Steps today: ${ctx.stepsToday.toLocaleString()} / ${ctx.stepGoal.toLocaleString()} goal
 - Water: ${ctx.waterGlasses}/8 glasses
 - Sleep: ${ctx.sleepHours ? ctx.sleepHours + ' hours' : 'not logged'}
+${calorieInfo}
 - This week avg completion: ${weekAvg}%
 - Weak habits (skipped often): ${ctx.weakHabits.join(', ') || 'none identified yet'}
 - Strong habits (consistent): ${ctx.strongHabits.join(', ') || 'building up'}
+${ctx.customContextFields ? `\nPersonal context:\n${ctx.customContextFields}` : ''}
 
 Instructions:
 - Be concise (2-4 sentences max unless they ask for more)
 - Be specific and personalized — use their actual data
 - Be encouraging but honest
-- Give actionable advice, not generic tips
+- Give actionable advice that fits their personal context (injuries, food preferences, lifestyle)
 - Current time: ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
 
@@ -183,40 +175,6 @@ Instructions:
     setMessages([]);
     storageSet(MESSAGES_KEY, []);
   }, []);
-
-  // Rule-based daily brief (no API needed)
-  function generateDailyBrief(ctx: CoachContext): string {
-    const lines: string[] = [];
-    const pct = ctx.totalCount > 0 ? (ctx.doneCount / ctx.totalCount) * 100 : 0;
-
-    if (ctx.streak >= 7) lines.push(`🔥 ${ctx.streak}-day streak — you're building real momentum!`);
-    else if (ctx.streak >= 3) lines.push(`🔥 ${ctx.streak} days consistent — keep it going!`);
-    else if (ctx.streak === 1) lines.push('Great start today — every streak begins with day 1.');
-    else lines.push("Fresh start today. Every day is a new chance.");
-
-    if (pct >= 80) lines.push(`Today's checklist: ${ctx.doneCount}/${ctx.totalCount} done. Excellent day!`);
-    else if (pct >= 50) lines.push(`${ctx.doneCount}/${ctx.totalCount} items done. A few more to close out the day strong.`);
-    else if (ctx.doneCount > 0) lines.push(`${ctx.doneCount}/${ctx.totalCount} done so far. Keep checking items off.`);
-
-    if (ctx.weakHabits.length > 0) {
-      lines.push(`📍 Focus area: ${ctx.weakHabits[0]} — this is your most skipped habit.`);
-    }
-
-    if (ctx.stepsToday < ctx.stepGoal * 0.5 && new Date().getHours() > 15) {
-      lines.push(`👟 Only ${ctx.stepsToday.toLocaleString()} steps so far. A short walk now would help.`);
-    }
-
-    if (ctx.waterGlasses < 4 && new Date().getHours() >= 12) {
-      lines.push(`💧 Only ${ctx.waterGlasses} glasses of water. Drink 2 more before dinner.`);
-    }
-
-    if (ctx.currentWeight && ctx.currentWeight > ctx.goalWeight) {
-      const remaining = (ctx.currentWeight - ctx.goalWeight).toFixed(1);
-      lines.push(`⚖️ ${remaining} kg to your goal. Every day of consistency gets you closer.`);
-    }
-
-    return lines.join('\n');
-  }
 
   return {
     config,

@@ -1,4 +1,5 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFonts, Fraunces_600SemiBold } from '@expo-google-fonts/fraunces';
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans';
@@ -11,13 +12,20 @@ import { usePedometer } from '@/hooks/use-pedometer';
 import { useStreak } from '@/hooks/use-streak';
 import { useDynamicChecklist } from '@/hooks/use-dynamic-checklist';
 import { useHealthScore } from '@/hooks/use-health-score';
+import { useUserProfile } from '@/hooks/use-user-profile';
+import { useFoodLog } from '@/hooks/use-food-log';
+import { useAiCoach } from '@/hooks/use-ai-coach';
 import { HealthScoreCard } from '@/components/monitor/health-score-card';
 import { MetricCard } from '@/components/monitor/metric-card';
-import { calcTDEE, bmiCategory } from '@/lib/bmr-calculator';
-import { useUserProfile } from '@/hooks/use-user-profile';
+import { CalorieRing } from '@/components/monitor/calorie-ring';
+import { MilestoneStepper } from '@/components/monitor/milestone-stepper';
+import { FoodLogModal } from '@/components/food/food-log-modal';
+import { calcTDEE, bmiCategory, calcCalorieTarget } from '@/lib/bmr-calculator';
 
 export default function MonitorScreen() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, DMSans_400Regular });
+  const [foodModal, setFoodModal] = useState(false);
+
   const { latestWeight, weeklyChange, kgLost, kgToGo, bmi, goalWeight, startWeight } = useWeightLog();
   const { glasses, goal: waterGoal } = useWater();
   const { log, sleepGoalMet, moodGoodOrGreat } = useDailyLogs();
@@ -25,6 +33,8 @@ export default function MonitorScreen() {
   const { streak } = useStreak();
   const { doneCount, totalCount, progressPct: checklistPct } = useDynamicChecklist();
   const { profile } = useUserProfile();
+  const { entries: foodEntries, totalCalories, addEntry: addFoodEntry, deleteEntry: deleteFoodEntry } = useFoodLog();
+  const { config: aiConfig, providerPresets } = useAiCoach();
 
   const score = useHealthScore({
     checklistPct,
@@ -36,6 +46,7 @@ export default function MonitorScreen() {
   });
 
   const tdeeEst = Math.round(calcTDEE(profile));
+  const calorieTarget = calcCalorieTarget(profile);
   const bmiInfo = bmi ? bmiCategory(bmi) : null;
 
   if (!fontsLoaded) return null;
@@ -57,7 +68,18 @@ export default function MonitorScreen() {
           {/* Health Score */}
           <HealthScoreCard score={score} />
 
-          {/* Today's metrics — 2 per row */}
+          {/* Calorie Ring */}
+          <Text style={styles.sectionLabel}>FOOD & CALORIES</Text>
+          <View style={styles.ringCard}>
+            <CalorieRing consumed={totalCalories} target={calorieTarget} />
+            <Pressable
+              style={({ pressed }) => [styles.logFoodBtn, pressed && { opacity: 0.75 }]}
+              onPress={() => setFoodModal(true)}>
+              <Text style={styles.logFoodTxt}>+ Log Food</Text>
+            </Pressable>
+          </View>
+
+          {/* Today's metrics */}
           <Text style={styles.sectionLabel}>TODAY</Text>
           <View style={styles.grid}>
             <MetricCard
@@ -133,41 +155,28 @@ export default function MonitorScreen() {
             )}
           </View>
 
-          {/* Weight progress */}
+          {/* Weight journey milestone stepper */}
           <Text style={styles.sectionLabel}>WEIGHT JOURNEY</Text>
-          <View style={styles.journeyCard}>
-            <View style={styles.journeyRow}>
-              <View style={styles.journeyItem}>
-                <Text style={styles.journeyValue}>{kgLost.toFixed(1)}</Text>
-                <Text style={styles.journeyLabel}>kg lost</Text>
-              </View>
-              <View style={styles.journeyItem}>
-                <Text style={styles.journeyValue}>{kgToGo.toFixed(1)}</Text>
-                <Text style={styles.journeyLabel}>kg to go</Text>
-              </View>
-              <View style={styles.journeyItem}>
-                <Text style={styles.journeyValue}>{goalWeight}</Text>
-                <Text style={styles.journeyLabel}>goal (kg)</Text>
-              </View>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${Math.min(100, ((startWeight - (latestWeight ?? startWeight)) / (startWeight - goalWeight)) * 100)}%`,
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressPct}>
-              {latestWeight
-                ? `${Math.round(((startWeight - latestWeight) / (startWeight - goalWeight)) * 100)}% to goal`
-                : 'Log your first weight entry'}
-            </Text>
-          </View>
+          <MilestoneStepper
+            startKg={startWeight}
+            goalKg={goalWeight}
+            currentKg={latestWeight}
+            weeklyChange={weeklyChange}
+          />
         </SafeAreaView>
       </ScrollView>
+
+      <FoodLogModal
+        visible={foodModal}
+        onClose={() => setFoodModal(false)}
+        entries={foodEntries}
+        totalCalories={totalCalories}
+        calorieTarget={calorieTarget}
+        onAdd={addFoodEntry}
+        onDelete={deleteFoodEntry}
+        aiConfig={aiConfig}
+        providerPresets={providerPresets}
+      />
     </View>
   );
 }
@@ -203,7 +212,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   streakText: { fontSize: 14, fontWeight: '700', color: AppColors.amber },
-
   sectionLabel: {
     fontSize: 11,
     color: AppColors.muted,
@@ -213,49 +221,31 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 4,
   },
-
   grid: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 8,
   },
-
-  journeyCard: {
+  ringCard: {
     backgroundColor: AppColors.paper,
     borderWidth: 1,
     borderColor: AppColors.line,
     borderRadius: 18,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 12,
+    alignItems: 'center',
+    gap: 10,
   },
-  journeyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 14,
-  },
-  journeyItem: { alignItems: 'center', gap: 2 },
-  journeyValue: {
-    fontFamily: 'Fraunces_600SemiBold',
-    fontSize: 22,
-    fontWeight: '700',
-    color: AppColors.ink,
-  },
-  journeyLabel: { fontSize: 11, color: AppColors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
-  progressTrack: {
-    height: 8,
-    backgroundColor: AppColors.line,
-    borderRadius: 99,
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  progressFill: {
-    height: '100%',
+  logFoodBtn: {
     backgroundColor: AppColors.green,
     borderRadius: 99,
+    paddingHorizontal: 24,
+    paddingVertical: 9,
   },
-  progressPct: {
-    fontSize: 12,
-    color: AppColors.muted,
-    textAlign: 'right',
+  logFoodTxt: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: AppColors.white,
   },
 });
