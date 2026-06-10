@@ -55,6 +55,20 @@ const PM_DEFS: ExerciseDef[] = [
   { id: 'pm-side-plank', name: 'Side plank', emoji: '📐', focus: 'core', unit: 'sec', base: 20, inc: 5, max: 60 },
 ];
 
+// Extra moves used when the user swaps out an exercise they dislike.
+const ALT_DEFS: ExerciseDef[] = [
+  { id: 'alt-mountain-climber', name: 'Mountain climber', emoji: '🏔️', focus: 'core', unit: 'reps/side', base: 12, inc: 3, max: 30 },
+  { id: 'alt-russian-twist', name: 'Russian twist', emoji: '🌀', focus: 'core', unit: 'reps/side', base: 12, inc: 3, max: 28 },
+  { id: 'alt-flutter-kick', name: 'Flutter kicks', emoji: '🦶', focus: 'core', unit: 'sec', base: 25, inc: 5, max: 60 },
+  { id: 'alt-heel-tap', name: 'Heel taps', emoji: '👟', focus: 'core', unit: 'reps/side', base: 12, inc: 2, max: 26 },
+  { id: 'alt-fire-hydrant', name: 'Fire hydrant', emoji: '🚒', focus: 'glute', unit: 'reps/side', base: 12, inc: 3, max: 28 },
+  { id: 'alt-sumo-squat', name: 'Sumo squat', emoji: '🤼', focus: 'glute', unit: 'reps', base: 15, inc: 3, max: 35 },
+  { id: 'alt-wall-sit', name: 'Wall sit', emoji: '🧱', focus: 'glute', unit: 'sec', base: 25, inc: 5, max: 75 },
+  { id: 'alt-single-leg-bridge', name: 'Single-leg bridge', emoji: '🦵', focus: 'glute', unit: 'reps/side', base: 10, inc: 2, max: 24 },
+];
+
+const ALL_DEFS: ExerciseDef[] = [...AM_DEFS, ...PM_DEFS, ...ALT_DEFS];
+
 const DAY_MS = 86400000;
 
 /** Program week (0-based, capped) from a start date string (YYYY-MM-DD) or null. */
@@ -95,4 +109,21 @@ export function getWorkout(week: number, slot: 'am' | 'pm'): WorkoutSession {
 /** One-line summary for a notification body, e.g. "Glute bridge ×15 · Plank 25s · Squat ×15". */
 export function workoutSummary(session: WorkoutSession): string {
   return session.exercises.map((e) => `${e.name} ${e.target}`).join(' · ');
+}
+
+/** Resolve any exercise id (main or alternate) to a week-scaled Exercise. */
+export function exerciseById(id: string, week: number): Exercise | null {
+  const def = ALL_DEFS.find((d) => d.id === id);
+  if (!def) return null;
+  return { id: def.id, name: def.name, emoji: def.emoji, focus: def.focus, target: formatTarget(def, amountForWeek(def, week)) };
+}
+
+export function focusOf(id: string): ExerciseFocus | null {
+  return ALL_DEFS.find((d) => d.id === id)?.focus ?? null;
+}
+
+/** Pick a same-focus alternate not already in the session. */
+export function getAlternate(focus: ExerciseFocus, week: number, excludeIds: string[]): Exercise | null {
+  const candidate = ALL_DEFS.find((d) => d.focus === focus && !excludeIds.includes(d.id));
+  return candidate ? exerciseById(candidate.id, week) : null;
 }

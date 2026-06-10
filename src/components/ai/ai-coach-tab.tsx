@@ -16,8 +16,10 @@ import type { ChatMessage, CoachContext } from '@/hooks/use-ai-coach';
 const QUICK_PROMPTS = [
   'Motivate me',
   'What should I eat now?',
+  'How do I do a hip thrust?',
+  '10-min ab burner',
+  'Fix my desk posture',
   'Show my weak spots',
-  'Suggest an exercise',
 ];
 
 type Props = {

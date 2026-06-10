@@ -61,6 +61,8 @@ export default function AppTabs() {
       {/* Non-tab screens — navigable but hidden from tab bar */}
       <Tabs.Screen name="my-data" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="onboarding" options={{ tabBarButton: () => null }} />
+      <Tabs.Screen name="progress-photos" options={{ tabBarButton: () => null }} />
+      <Tabs.Screen name="achievements" options={{ tabBarButton: () => null }} />
     </Tabs>
   );
 }

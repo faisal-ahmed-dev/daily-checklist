@@ -8,6 +8,9 @@ import {
   STEP_MILESTONE_CHANNEL,
   STEP_INACTIVITY_CHANNEL,
 } from '@/lib/step-utils';
+import { NOTIF_CHANNELS, setupNotificationActions } from '@/lib/notification-tasks';
+import { todayKey } from '@/lib/date-utils';
+import type { FoodEntry } from '@/hooks/use-food-log';
 
 export const STEP_INTEL_TASK = 'step-intel-task';
 
@@ -17,7 +20,18 @@ const KEYS = {
   lastActiveTime: '@steps/last_active_time',
   lastInactivityNotif: '@steps/last_inactivity_notif',
   lastMicroBreak: '@steps/last_microbreak',
+  lunchNudge: '@nudge/lunch',
+  workoutNudge: '@nudge/workout',
 };
+
+function safeParse<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 /** Minutes between office-hours desk-break nudges. */
 const MICRO_BREAK_MIN = 50;
@@ -45,6 +59,27 @@ export async function setupNotificationChannels() {
     sound: null,
     showBadge: false,
   });
+
+  // Per-category channels so each reminder type can be muted/prioritized independently.
+  const categoryChannels: { id: string; name: string }[] = [
+    { id: NOTIF_CHANNELS.food, name: 'Food & Meals' },
+    { id: NOTIF_CHANNELS.workout, name: 'Workouts & Movement' },
+    { id: NOTIF_CHANNELS.water, name: 'Hydration' },
+    { id: NOTIF_CHANNELS.weighin, name: 'Weigh-in & Logging' },
+    { id: NOTIF_CHANNELS.brief, name: 'Daily Check-in' },
+    { id: NOTIF_CHANNELS.general, name: 'General' },
+  ];
+  for (const c of categoryChannels) {
+    await Notifications.setNotificationChannelAsync(c.id, {
+      name: c.name,
+      importance: Notifications.AndroidImportance.DEFAULT,
+      enableVibrate: true,
+      showBadge: false,
+    });
+  }
+
+  // Register the tappable action buttons (water +1, did workout, snooze).
+  await setupNotificationActions();
 }
 
 TaskManager.defineTask(STEP_INTEL_TASK, async () => {
@@ -136,6 +171,40 @@ TaskManager.defineTask(STEP_INTEL_TASK, async () => {
           trigger: { channelId: CHANNELS.inactivity, seconds: 1, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
         });
         await AsyncStorage.setItem(KEYS.lastMicroBreak, String(Date.now()));
+      }
+    }
+
+    // --- Conditional smart nudges (fire only when something's missing, app-closed) ---
+    const today = todayKey();
+    const food = safeParse<FoodEntry[]>(await AsyncStorage.getItem(`@food/log_${today}`), []);
+    const loggedLunch = food.some((e) => e.time >= '11:30' && e.time <= '15:30' && e.calories >= 150);
+
+    if (hourNow >= 14 && hourNow < 16 && !loggedLunch) {
+      if ((await AsyncStorage.getItem(KEYS.lunchNudge)) !== today) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🍱 Lunch not logged',
+            body: 'Catering: take the fish or chicken, 1 cup rice max, load the salad. Tap to log it.',
+            sound: false,
+          },
+          trigger: { channelId: NOTIF_CHANNELS.food, seconds: 1, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
+        });
+        await AsyncStorage.setItem(KEYS.lunchNudge, today);
+      }
+    }
+
+    const workoutDone = safeParse<string[]>(await AsyncStorage.getItem(`@workout/done_${today}`), []);
+    if (hourNow >= 21 && hourNow < 23 && workoutDone.length === 0) {
+      if ((await AsyncStorage.getItem(KEYS.workoutNudge)) !== today) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🍑 Workout still pending',
+            body: 'Nothing checked off today. 10 min of glute bridges, squats & plank keeps the streak alive.',
+            sound: false,
+          },
+          trigger: { channelId: NOTIF_CHANNELS.workout, seconds: 1, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
+        });
+        await AsyncStorage.setItem(KEYS.workoutNudge, today);
       }
     }
 

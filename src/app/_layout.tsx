@@ -6,9 +6,11 @@ import { useRouter } from 'expo-router';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
-import { storageGet } from '@/lib/storage';
-import { scheduleNotifications, requestNotificationPermission, type NotifSettings } from '@/lib/notification-tasks';
+import { storageGet, storageSet } from '@/lib/storage';
+import { scheduleNotifications, requestNotificationPermission, ACTION_IDS, NOTIF_CHANNELS, type NotifSettings } from '@/lib/notification-tasks';
 import { registerStepIntelTask, setupNotificationChannels } from '@/lib/background-tasks';
+import { currentWeekIndex, getWorkout } from '@/lib/workout-program';
+import { todayKey } from '@/lib/date-utils';
 
 // Import task definition so TaskManager knows about it at module load time
 import '@/lib/background-tasks';
@@ -22,6 +24,40 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+/** Apply a notification action button without needing the app foregrounded. */
+async function handleNotificationAction(response: Notifications.NotificationResponse) {
+  const action = response.actionIdentifier;
+  const content = response.notification.request.content;
+
+  if (action === ACTION_IDS.logWater) {
+    const key = `@water/glasses_${todayKey()}`;
+    const cur = (await storageGet<number>(key)) ?? 0;
+    await storageSet(key, Math.min(20, cur + 1));
+  } else if (action === ACTION_IDS.didWorkout) {
+    const start = await storageGet<string>('@workout/start');
+    const week = currentWeekIndex(start);
+    const slot = new Date().getHours() < 14 ? 'am' : 'pm';
+    const ids = getWorkout(week, slot).exercises.map((e) => e.id);
+    const key = `@workout/done_${todayKey()}`;
+    const done = (await storageGet<string[]>(key)) ?? [];
+    await storageSet(key, Array.from(new Set([...done, ...ids])));
+  } else if (action === ACTION_IDS.snooze) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: content.title ?? 'Reminder',
+        body: content.body ?? '',
+        categoryIdentifier: content.categoryIdentifier ?? undefined,
+        sound: false,
+      },
+      trigger: {
+        seconds: 1800,
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        channelId: NOTIF_CHANNELS.general,
+      },
+    });
+  }
+}
 
 const customLight = {
   ...DefaultTheme,
@@ -87,6 +123,10 @@ export default function TabLayout() {
     }
 
     init();
+
+    // Handle action-button taps (water +1, did workout, snooze) even from background.
+    const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationAction);
+    return () => sub.remove();
   }, []);
 
   return (

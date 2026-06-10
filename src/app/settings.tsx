@@ -449,6 +449,18 @@ Return ONLY a JSON array: ["fact1","fact2","fact3","fact4"]`;
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Data</Text>
             <Pressable
+              onPress={() => router.push('/progress-photos' as any)}
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}>
+              <Text style={styles.actionBtnText}>📷 Progress Photos</Text>
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable
+              onPress={() => router.push('/achievements' as any)}
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}>
+              <Text style={styles.actionBtnText}>🏆 Achievements</Text>
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable
               onPress={() => router.push('/my-data' as any)}
               style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}>
               <Text style={styles.actionBtnText}>View All My Data (JSON)</Text>

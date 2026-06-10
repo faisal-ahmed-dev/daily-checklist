@@ -19,6 +19,7 @@ import { HealthScoreCard } from '@/components/monitor/health-score-card';
 import { MetricCard } from '@/components/monitor/metric-card';
 import { CalorieRing } from '@/components/monitor/calorie-ring';
 import { MilestoneStepper } from '@/components/monitor/milestone-stepper';
+import { MeasurementsCard } from '@/components/monitor/measurements-card';
 import { FoodLogModal } from '@/components/food/food-log-modal';
 import { calcTDEE, bmiCategory, calcCalorieTarget } from '@/lib/bmr-calculator';
 
@@ -165,6 +166,9 @@ export default function MonitorScreen() {
             paceStatus={paceStatus}
             targetDate={targetDate}
           />
+
+          {/* Waist & hip — better belly/glute signal than the scale */}
+          <MeasurementsCard />
         </SafeAreaView>
       </ScrollView>
 

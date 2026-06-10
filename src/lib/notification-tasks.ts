@@ -2,6 +2,56 @@ import * as Notifications from 'expo-notifications';
 import { storageGet } from '@/lib/storage';
 import { ROUTINE_KEY, DEFAULT_ROUTINE, routineSlotTimes, type UserRoutine } from '@/lib/user-routine';
 import { currentWeekIndex, getWorkout, workoutSummary } from '@/lib/workout-program';
+import { calcCalorieTarget, type UserProfile } from '@/lib/bmr-calculator';
+
+/** Per-category Android notification channels, so each type can be muted/prioritized. */
+export const NOTIF_CHANNELS = {
+  food: 'food-reminders',
+  workout: 'workout-reminders',
+  water: 'water-reminders',
+  weighin: 'weighin-reminders',
+  brief: 'daily-brief',
+  general: 'general',
+} as const;
+export type NotifCategory = keyof typeof NOTIF_CHANNELS;
+
+const SLOT_CATEGORY: Record<string, NotifCategory> = {
+  breakfast: 'food', lunch: 'food', 'snack-pm': 'food', 'skip-nescafe-am': 'food', 'kitchen-closed': 'food', dinner: 'food',
+  'morning-exercise': 'workout', 'night-exercise': 'workout', 'morning-walk': 'workout', 'evening-walk': 'workout', 'morning-stretch': 'workout', 'night-stretch': 'workout', 'step-goal-nudge': 'workout',
+  'water-am': 'water', 'water-pm': 'water', 'water-eve': 'water',
+  'weigh-in': 'weighin', 'log-weight-mood': 'weighin',
+  'daily-summary': 'brief',
+};
+
+export function slotCategory(id: string): NotifCategory {
+  return SLOT_CATEGORY[id] ?? 'general';
+}
+
+/** Interactive action categories (the button sets attached to notifications). */
+export const ACTION_CATEGORY = { water: 'water-actions', workout: 'workout-actions', snooze: 'snooze-actions' } as const;
+export const ACTION_IDS = { logWater: 'LOG_WATER', didWorkout: 'DID_WORKOUT', snooze: 'SNOOZE_30' } as const;
+
+function actionCategoryFor(cat: NotifCategory): string | undefined {
+  if (cat === 'water') return ACTION_CATEGORY.water;
+  if (cat === 'workout') return ACTION_CATEGORY.workout;
+  if (cat === 'food') return ACTION_CATEGORY.snooze;
+  return undefined;
+}
+
+/** Register the tappable action buttons. Safe to call repeatedly. */
+export async function setupNotificationActions(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(ACTION_CATEGORY.water, [
+    { identifier: ACTION_IDS.logWater, buttonTitle: '+1 glass 💧' },
+    { identifier: ACTION_IDS.snooze, buttonTitle: 'Snooze 30m' },
+  ]);
+  await Notifications.setNotificationCategoryAsync(ACTION_CATEGORY.workout, [
+    { identifier: ACTION_IDS.didWorkout, buttonTitle: 'Did it ✓' },
+    { identifier: ACTION_IDS.snooze, buttonTitle: 'Snooze 30m' },
+  ]);
+  await Notifications.setNotificationCategoryAsync(ACTION_CATEGORY.snooze, [
+    { identifier: ACTION_IDS.snooze, buttonTitle: 'Snooze 30m' },
+  ]);
+}
 
 export type NotificationSlot = {
   id: string;
@@ -238,29 +288,53 @@ export async function scheduleNotifications(
     'night-exercise': `${workoutSummary(getWorkout(week, 'pm'))}. Belly & glute focus.`,
   };
 
+  // Richer bodies: weave in live numbers (calorie target, kg-to-go, step goal).
+  const profile = await storageGet<UserProfile>('@user/profile');
+  const calorieTarget = profile ? calcCalorieTarget(profile) : null;
+  const weightEntries = await storageGet<{ date: string; kg: number }[]>('@weight/entries');
+  const latestKg = weightEntries?.length
+    ? [...weightEntries].sort((a, b) => b.date.localeCompare(a.date))[0].kg
+    : null;
+  const kgToGo = latestKg != null ? Math.max(0, latestKg - 70) : null;
+  const stepGoal = (await storageGet<number>('@pedometer/daily_goal')) ?? 7000;
+  if (calorieTarget) {
+    bodyOverrides.lunch = `1 cup rice max, load the salad, take the fish. Today's target ~${calorieTarget} kcal.`;
+    bodyOverrides.dinner = `Earlier is better. ½–1 cup rice, then a 20-min walk. Stay under ~${calorieTarget} kcal.`;
+  }
+  if (kgToGo != null) {
+    bodyOverrides['weigh-in'] = `Empty stomach, same time — log it. ${kgToGo.toFixed(1)} kg to your 70 kg goal.`;
+  }
+  bodyOverrides['step-goal-nudge'] = `A short walk now keeps you on track. Goal: ${stepGoal.toLocaleString()} steps today.`;
+
   // Built-in slots
   for (const slot of NOTIFICATION_SLOTS) {
+    const cat = slotCategory(slot.id);
+    const channelId = NOTIF_CHANNELS[cat];
+    const categoryIdentifier = actionCategoryFor(cat);
+    const body = bodyOverrides[slot.id] ?? slot.body;
     if (slot.id === 'weigh-in') {
       if (!settings.weeklyWeighIn) continue;
       const t = timeFor(slot.id, slot.hour, slot.minute);
       await Notifications.scheduleNotificationAsync({
-        content: { title: slot.title, body: slot.body, sound: true },
+        content: { title: slot.title, body, sound: true, categoryIdentifier },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
           weekday: 2, // Monday
           hour: t.hour,
           minute: t.minute,
+          channelId,
         },
       });
     } else {
       if (!settings.enabledIds.includes(slot.id)) continue;
       const t = timeFor(slot.id, slot.hour, slot.minute);
       await Notifications.scheduleNotificationAsync({
-        content: { title: slot.title, body: bodyOverrides[slot.id] ?? slot.body, sound: true },
+        content: { title: slot.title, body, sound: true, categoryIdentifier },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
           hour: t.hour,
           minute: t.minute,
+          channelId,
         },
       });
     }
@@ -275,6 +349,7 @@ export async function scheduleNotifications(
         type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour: r.hour,
         minute: r.minute,
+        channelId: NOTIF_CHANNELS.general,
       },
     });
   }
@@ -291,6 +366,7 @@ export async function scheduleNotifications(
         type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour: settings.dailyBrief.hour,
         minute: settings.dailyBrief.minute,
+        channelId: NOTIF_CHANNELS.brief,
       },
     });
   }

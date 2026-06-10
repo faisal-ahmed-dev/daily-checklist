@@ -36,6 +36,8 @@ import { StepsCard } from '@/components/checklist/steps-card';
 import { AccordionSection } from '@/components/checklist/checklist-section';
 import { WorkoutCard } from '@/components/workout/workout-card';
 import { EatingAgentCard } from '@/components/agent/eating-agent-card';
+import { WorkoutAgentCard } from '@/components/agent/workout-agent-card';
+import { useWorkoutAgent } from '@/hooks/use-workout-agent';
 import type { MoodLevel } from '@/hooks/use-daily-logs';
 
 const NAME_KEY = '@user/name';
@@ -86,6 +88,9 @@ export default function TodayScreen() {
   const { streak, markComplete } = useStreak();
   const { latestWeight, goalWeight, startWeight, kgToGo, paceStatus } = useWeightLog();
   const workout = useWorkout();
+  const amDone = workout.am.exercises.length > 0 && workout.am.exercises.every((e) => workout.isDone(e.id));
+  const pmDone = workout.pm.exercises.length > 0 && workout.pm.exercises.every((e) => workout.isDone(e.id));
+  const { suggestion: workoutNudge } = useWorkoutAgent(amDone, pmDone);
   const nescafe = useNescafe();
   const { entries: foodEntries } = useFoodLog();
   const agent = useEatingAgent(foodEntries);
@@ -261,6 +266,9 @@ export default function TodayScreen() {
             onSetGoal={setStepGoal}
           />
 
+          {/* Proactive workout nudge */}
+          <WorkoutAgentCard suggestion={workoutNudge} />
+
           {/* Targeted belly + glute workout */}
           <WorkoutCard
             week={workout.week}
@@ -268,6 +276,9 @@ export default function TodayScreen() {
             pm={workout.pm}
             isDone={workout.isDone}
             onToggle={workout.toggle}
+            energy={workout.energy}
+            onSetEnergy={workout.setEnergy}
+            onSwap={workout.swap}
           />
 
           {/* Quick Vitals Row */}

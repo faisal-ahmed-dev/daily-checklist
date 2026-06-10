@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppColors } from '@/constants/theme';
 import type { WorkoutSession } from '@/lib/workout-program';
+import type { Energy } from '@/hooks/use-workout';
 
 type Props = {
   week: number;
@@ -9,9 +10,12 @@ type Props = {
   pm: WorkoutSession;
   isDone: (id: string) => boolean;
   onToggle: (id: string) => void;
+  energy: Energy;
+  onSetEnergy: (e: Energy) => void;
+  onSwap: (id: string) => void;
 };
 
-export function WorkoutCard({ week, am, pm, isDone, onToggle }: Props) {
+export function WorkoutCard({ week, am, pm, isDone, onToggle, energy, onSetEnergy, onSwap }: Props) {
   // Default to the session that fits the time of day; user can switch.
   const [slot, setSlot] = useState<'am' | 'pm'>(new Date().getHours() < 14 ? 'am' : 'pm');
   const session = slot === 'am' ? am : pm;
@@ -41,6 +45,20 @@ export function WorkoutCard({ week, am, pm, isDone, onToggle }: Props) {
         </View>
       </View>
 
+      {/* Energy picker — trims to a quick 3-move session on low-energy days */}
+      <View style={styles.energyRow}>
+        {(['full', 'quick'] as const).map((lvl) => (
+          <Pressable
+            key={lvl}
+            onPress={() => onSetEnergy(lvl)}
+            style={[styles.energyBtn, energy === lvl && styles.energyBtnActive]}>
+            <Text style={[styles.energyText, energy === lvl && styles.energyTextActive]}>
+              {lvl === 'full' ? '💪 Full' : '⚡ Quick (3)'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${total ? (doneCount / total) * 100 : 0}%` }]} />
       </View>
@@ -61,6 +79,12 @@ export function WorkoutCard({ week, am, pm, isDone, onToggle }: Props) {
                 {ex.name}
               </Text>
               <Text style={[styles.exTarget, done && styles.exTargetDone]}>{ex.target}</Text>
+              <Pressable
+                onPress={() => onSwap(ex.id)}
+                hitSlop={8}
+                style={({ pressed }) => [styles.swapBtn, pressed && styles.pressed]}>
+                <Text style={styles.swapIcon}>↻</Text>
+              </Pressable>
             </Pressable>
           );
         })}
@@ -104,6 +128,21 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: AppColors.green },
   toggleText: { fontSize: 11, fontWeight: '700', color: AppColors.muted },
   toggleTextActive: { color: AppColors.white },
+  energyRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  energyBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: AppColors.line,
+    borderRadius: 99,
+    paddingVertical: 5,
+    alignItems: 'center',
+    backgroundColor: AppColors.cream,
+  },
+  energyBtnActive: { backgroundColor: AppColors.greenSoft, borderColor: AppColors.greenLine },
+  energyText: { fontSize: 12, fontWeight: '600', color: AppColors.muted },
+  energyTextActive: { color: AppColors.greenDeep },
+  swapBtn: { paddingHorizontal: 2 },
+  swapIcon: { fontSize: 15, color: AppColors.muted, fontWeight: '700' },
   progressTrack: {
     height: 4,
     backgroundColor: AppColors.line,

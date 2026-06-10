@@ -16,6 +16,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { useAiContext } from '@/hooks/use-ai-context';
 import { useFoodLog } from '@/hooks/use-food-log';
 import { useEatingAgent } from '@/hooks/use-eating-agent';
+import { MealPlanCard } from '@/components/ai/meal-plan-card';
 import { calcCalorieTarget } from '@/lib/bmr-calculator';
 import { storageGet } from '@/lib/storage';
 import { useEffect, useState } from 'react';
@@ -205,6 +206,9 @@ Give an honest, encouraging analysis and 3 specific action items labelled "Actio
             </View>
           )}
         </View>
+
+        {/* Weekly BD meal plan */}
+        <MealPlanCard calorieTarget={calorieTarget} />
 
         <AiCoachTab
           messages={messages}
