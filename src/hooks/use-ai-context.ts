@@ -59,6 +59,19 @@ export function useAiContext() {
     []
   );
 
+  // Seed starter context (once) so the AI coach is personalized from day one.
+  // No-op if the user already has any context fields, so it never duplicates.
+  const seedContext = useCallback(
+    async (items: { label: string; value: string; category: ContextCategory }[]) => {
+      const existing = await storageGet<ContextField[]>(CONTEXT_KEY);
+      if (existing && existing.length > 0) return;
+      const next: ContextField[] = items.map((it, i) => ({ id: `ctx_seed_${Date.now()}_${i}`, ...it }));
+      await storageSet(CONTEXT_KEY, next);
+      setFields(next);
+    },
+    []
+  );
+
   const editField = useCallback(
     (id: string, updates: Partial<Pick<ContextField, 'label' | 'value'>>) => {
       setFields((prev) => {
@@ -97,6 +110,7 @@ export function useAiContext() {
     fields,
     loaded,
     addField,
+    seedContext,
     editField,
     deleteField,
     getFieldsForPrompt,

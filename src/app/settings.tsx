@@ -15,6 +15,8 @@ import { useAiCoach } from '@/hooks/use-ai-coach';
 import { useAiContext } from '@/hooks/use-ai-context';
 import { useFoodLog } from '@/hooks/use-food-log';
 import { NOTIFICATION_SLOTS } from '@/lib/notification-tasks';
+import { useRoutine } from '@/hooks/use-routine';
+import { ROUTINE_FIELDS, type UserRoutine } from '@/lib/user-routine';
 import { TimePickerModal, formatTime12h } from '@/components/time-picker-modal';
 import type { AiProvider } from '@/hooks/use-ai-coach';
 import type { ContextCategory } from '@/hooks/use-ai-context';
@@ -37,6 +39,7 @@ export default function SettingsScreen() {
     setBriefTime,
   } = useNotifications();
   const { profile, updateProfile } = useUserProfile();
+  const { routine, updateRoutine } = useRoutine();
   const { entries } = useWeightLog();
   const { reset: resetChecklist } = useDynamicChecklist();
   const { config: aiConfig, updateConfig: updateAiConfig, providerPresets } = useAiCoach();
@@ -61,7 +64,8 @@ export default function SettingsScreen() {
     | { kind: 'slot'; id: string }
     | { kind: 'brief' }
     | { kind: 'custom-new' }
-    | { kind: 'custom-edit'; id: string };
+    | { kind: 'custom-edit'; id: string }
+    | { kind: 'routine'; field: keyof UserRoutine };
   const [timeTarget, setTimeTarget] = useState<TimeTarget | null>(null);
   const [timeInit, setTimeInit] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 });
   const [customModal, setCustomModal] = useState<{ visible: boolean; label: string; hour: number; minute: number }>({
@@ -81,6 +85,7 @@ export default function SettingsScreen() {
     else if (target.kind === 'brief') setBriefTime(hour, minute);
     else if (target.kind === 'custom-edit') updateCustomReminder(target.id, { hour, minute });
     else if (target.kind === 'custom-new') setCustomModal((p) => ({ ...p, hour, minute }));
+    else if (target.kind === 'routine') updateRoutine({ [target.field]: { hour, minute } });
   }
 
   function slotTime(id: string, h: number, m: number) {
@@ -338,6 +343,28 @@ Return ONLY a JSON array: ["fact1","fact2","fact3","fact4"]`;
                 </Pressable>
               </>
             )}
+          </View>
+
+          {/* My Routine */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>My Routine</Text>
+            <Text style={[styles.rowSub, { marginBottom: 10 }]}>
+              Your reminders fire around these times. Update them whenever your schedule changes.
+            </Text>
+            {ROUTINE_FIELDS.map(({ key, label, emoji }) => (
+              <View key={key} style={styles.slotRow}>
+                <Text style={styles.slotLabel} numberOfLines={1}>{emoji}  {label}</Text>
+                <Pressable
+                  style={({ pressed }) => [styles.timeChip, { marginRight: 0 }, pressed && styles.actionBtnPressed]}
+                  onPress={() =>
+                    openTimePicker({ kind: 'routine', field: key }, routine[key].hour, routine[key].minute)
+                  }>
+                  <Text style={styles.timeChipText}>
+                    {formatTime12h(routine[key].hour, routine[key].minute)}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
           </View>
 
           {/* Personal Info */}

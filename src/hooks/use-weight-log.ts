@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { storageGet, storageSet } from '@/lib/storage';
 import { calcBMI, predictGoalDate } from '@/lib/bmr-calculator';
+import { computePace, defaultTargetDate } from '@/lib/pace';
 import { todayKey } from '@/lib/date-utils';
 
 export type WeightEntry = {
@@ -12,23 +13,33 @@ export type WeightEntry = {
 
 const ENTRIES_KEY = '@weight/entries';
 const HEIGHT_KEY = '@weight/height_cm';
+const TARGET_DATE_KEY = '@weight/target_date';
 const START_WEIGHT = 89;
 const GOAL_WEIGHT = 70;
 
 export function useWeightLog() {
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [heightCm, setHeightCm] = useState<number>(170);
+  const [targetDateStr, setTargetDateStr] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     Promise.all([
       storageGet<WeightEntry[]>(ENTRIES_KEY),
       storageGet<number>(HEIGHT_KEY),
-    ]).then(([saved, h]) => {
+      storageGet<string>(TARGET_DATE_KEY),
+    ]).then(([saved, h, td]) => {
       if (saved) setEntries(saved);
       if (h) setHeightCm(h);
+      if (td) setTargetDateStr(td);
       setLoaded(true);
     });
+  }, []);
+
+  const updateTargetDate = useCallback((date: Date) => {
+    const iso = date.toISOString().split('T')[0];
+    setTargetDateStr(iso);
+    storageSet(TARGET_DATE_KEY, iso);
   }, []);
 
   const addEntry = useCallback(
@@ -76,6 +87,10 @@ export function useWeightLog() {
     GOAL_WEIGHT
   );
 
+  // Journey start = earliest logged date (entries are sorted desc), else today.
+  const startDate = sorted.length ? new Date(sorted[sorted.length - 1].date) : new Date();
+  const targetDate = targetDateStr ? new Date(targetDateStr) : defaultTargetDate(startDate);
+
   // Weekly weight change
   const weeklyChange = (() => {
     if (sorted.length < 2) return null;
@@ -86,6 +101,15 @@ export function useWeightLog() {
     if (!weekOldEntry || !latestWeight) return null;
     return +(latestWeight - weekOldEntry.kg).toFixed(1);
   })();
+
+  const paceStatus = computePace({
+    startKg: START_WEIGHT,
+    goalKg: GOAL_WEIGHT,
+    currentKg: latestWeight,
+    startDate,
+    targetDate,
+    weeklyChange,
+  });
 
   return {
     entries: sorted,
@@ -100,6 +124,9 @@ export function useWeightLog() {
     progressPct,
     goalDate,
     weeklyChange,
+    targetDate,
+    updateTargetDate,
+    paceStatus,
     loaded,
     startWeight: START_WEIGHT,
     goalWeight: GOAL_WEIGHT,

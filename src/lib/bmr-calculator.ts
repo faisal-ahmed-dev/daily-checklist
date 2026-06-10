@@ -25,9 +25,17 @@ export function calcTDEE(profile: UserProfile): number {
   return calcBMR(profile) * ACTIVITY_FACTORS[profile.activityLevel];
 }
 
-/** Daily calorie target for 0.5 kg/week loss */
-export function calcCalorieTarget(profile: UserProfile): number {
-  return Math.round(calcTDEE(profile) - 500);
+/** Never recommend eating below this many kcal/day, regardless of pace pressure. */
+export const MIN_CALORIE_TARGET = 1300;
+
+/**
+ * Daily calorie target. Base is a 500 kcal/day deficit (~0.5 kg/week); `extraDeficit`
+ * (from the pace engine) tightens it further when the user is behind their deadline,
+ * floored at MIN_CALORIE_TARGET for safety.
+ */
+export function calcCalorieTarget(profile: UserProfile, extraDeficit = 0): number {
+  const target = Math.round(calcTDEE(profile) - 500 - Math.max(0, extraDeficit));
+  return Math.max(MIN_CALORIE_TARGET, target);
 }
 
 /** Protein target: 2g per kg body weight */

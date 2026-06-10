@@ -8,17 +8,23 @@ import { AppColors, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useWeightLog } from '@/hooks/use-weight-log';
 import { useOnboarding } from '@/hooks/use-onboarding';
+import { useRoutine } from '@/hooks/use-routine';
+import { useAiContext } from '@/hooks/use-ai-context';
+import { TimePickerModal, formatTime12h } from '@/components/time-picker-modal';
+import { ROUTINE_FIELDS, type UserRoutine } from '@/lib/user-routine';
 import { storageGet, storageSet } from '@/lib/storage';
 
 const NAME_KEY = '@user/name';
 
-type Step = 'name' | 'weight' | 'goal' | 'height' | 'age' | 'gender' | 'activity' | 'done';
+type Step = 'name' | 'weight' | 'goal' | 'height' | 'age' | 'gender' | 'activity' | 'routine' | 'done';
 
 export default function OnboardingScreen() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, DMSans_400Regular });
   const { profile, updateProfile } = useUserProfile();
   const { addEntry } = useWeightLog();
   const { markComplete } = useOnboarding();
+  const { routine, updateRoutine } = useRoutine();
+  const { seedContext } = useAiContext();
 
   const [step, setStep] = useState<Step>('name');
   const [name, setName] = useState('');
@@ -26,10 +32,11 @@ export default function OnboardingScreen() {
   const [goal, setGoal] = useState('');
   const [height, setHeight] = useState('');
   const [age, setAge] = useState('');
+  const [editingField, setEditingField] = useState<keyof UserRoutine | null>(null);
 
   if (!fontsLoaded) return null;
 
-  const STEPS: Step[] = ['name', 'weight', 'goal', 'height', 'age', 'gender', 'activity', 'done'];
+  const STEPS: Step[] = ['name', 'weight', 'goal', 'height', 'age', 'gender', 'activity', 'routine', 'done'];
   const stepIndex = STEPS.indexOf(step);
   const progressPct = stepIndex / (STEPS.length - 1);
 
@@ -45,6 +52,30 @@ export default function OnboardingScreen() {
       ageYears: isNaN(a) ? 30 : a,
     });
     await storageSet(NAME_KEY, name.trim() || 'Friend');
+
+    // Seed AI context so the coach is personalized from day one (editable in Settings).
+    const lossKg = !isNaN(w) && !isNaN(g) ? Math.max(0, Math.round(w - g)) : 0;
+    const t = (k: keyof UserRoutine) => formatTime12h(routine[k].hour, routine[k].minute);
+    await seedContext([
+      {
+        category: 'lifestyle',
+        label: 'Work',
+        value: `Desk job, office ${t('officeStart')}–${t('officeEnd')}, mostly sitting`,
+      },
+      { category: 'lifestyle', label: 'Movement', value: 'Commutes by bus, ~5000 steps/day, no gym' },
+      {
+        category: 'lifestyle',
+        label: 'Meals',
+        value: `Breakfast ${t('breakfast')}, lunch ${t('lunch')}, dinner ${t('dinner')}`,
+      },
+      { category: 'health', label: 'Target areas', value: 'Wants to reduce belly fat and hip/glute fat' },
+      { category: 'food', label: 'Region', value: 'Bangladesh — rice, fish/chicken curry, ruti, cha' },
+      { category: 'food', label: 'Habit to cut', value: 'Nescafe 3-in-1 sugar latte around 10am and 4pm' },
+      ...(lossKg > 0
+        ? [{ category: 'custom' as const, label: 'Goal timeline', value: `Lose ${lossKg}kg in ~6 months (high priority)` }]
+        : []),
+    ]);
+
     await markComplete();
   }
 
@@ -211,6 +242,27 @@ export default function OnboardingScreen() {
               </StepCard>
             )}
 
+            {step === 'routine' && (
+              <StepCard
+                title="When does your day happen?"
+                sub="Your reminders fire at YOUR times — tap any to adjust, or keep the defaults.">
+                <View style={styles.routineList}>
+                  {ROUTINE_FIELDS.map(({ key, label, emoji }) => (
+                    <Pressable
+                      key={key}
+                      style={styles.routineRow}
+                      onPress={() => setEditingField(key)}>
+                      <Text style={styles.routineEmoji}>{emoji}</Text>
+                      <Text style={styles.routineLabel}>{label}</Text>
+                      <Text style={styles.routineTime}>
+                        {formatTime12h(routine[key].hour, routine[key].minute)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </StepCard>
+            )}
+
             {step === 'done' && (
               <StepCard title={`You're all set, ${name}!`} sub="Your personalized weight loss tracker is ready.">
                 <View style={styles.doneIcons}>
@@ -250,6 +302,18 @@ export default function OnboardingScreen() {
           </Text>
         </Pressable>
       </View>
+
+      <TimePickerModal
+        visible={editingField !== null}
+        title={ROUTINE_FIELDS.find((f) => f.key === editingField)?.label ?? 'Set time'}
+        initialHour={editingField ? routine[editingField].hour : 7}
+        initialMinute={editingField ? routine[editingField].minute : 0}
+        onCancel={() => setEditingField(null)}
+        onSave={(hour, minute) => {
+          if (editingField) updateRoutine({ [editingField]: { hour, minute } });
+          setEditingField(null);
+        }}
+      />
     </View>
   );
 }
@@ -350,6 +414,22 @@ const styles = StyleSheet.create({
   activityOptionActive: { borderColor: AppColors.green, backgroundColor: AppColors.greenSoft },
   activityText: { fontSize: 15, color: AppColors.ink },
   activityTextActive: { color: AppColors.green, fontWeight: '600' },
+
+  routineList: { gap: 8 },
+  routineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1.5,
+    borderColor: AppColors.line,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: AppColors.paper,
+  },
+  routineEmoji: { fontSize: 18 },
+  routineLabel: { flex: 1, fontSize: 15, color: AppColors.ink },
+  routineTime: { fontSize: 15, fontWeight: '700', color: AppColors.green },
 
   doneIcons: { flexDirection: 'row', gap: 16, justifyContent: 'center', marginVertical: 16 },
   doneIcon: { fontSize: 40 },

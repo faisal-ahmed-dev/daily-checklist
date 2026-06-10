@@ -15,6 +15,7 @@ import { useAnalytics } from '@/hooks/use-analytics';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useAiContext } from '@/hooks/use-ai-context';
 import { useFoodLog } from '@/hooks/use-food-log';
+import { useEatingAgent } from '@/hooks/use-eating-agent';
 import { calcCalorieTarget } from '@/lib/bmr-calculator';
 import { storageGet } from '@/lib/storage';
 import { useEffect, useState } from 'react';
@@ -33,7 +34,7 @@ export default function AiScreen() {
 
   const { messages, loading, error, sendMessage, clearMessages, generateDailyBrief, hasApiKey, config, providerPresets } =
     useAiCoach();
-  const { latestWeight, weeklyChange, goalWeight, startWeight } = useWeightLog();
+  const { latestWeight, weeklyChange, goalWeight, startWeight, paceStatus } = useWeightLog();
   const { glasses } = useWater();
   const { log } = useDailyLogs();
   const { steps, goal: stepGoal } = usePedometer();
@@ -42,7 +43,8 @@ export default function AiScreen() {
   const { last7, perHabitRates } = useAnalytics();
   const { profile } = useUserProfile();
   const { getFieldsForPrompt } = useAiContext();
-  const { totalCalories, getLastNDays } = useFoodLog();
+  const { entries: foodEntries, totalCalories, getLastNDays } = useFoodLog();
+  const { zone } = useEatingAgent(foodEntries);
 
   useEffect(() => {
     storageGet<string>(NAME_KEY).then((n) => {
@@ -64,7 +66,7 @@ export default function AiScreen() {
     .slice(0, 3)
     .map(([id]) => id.replace(/_/g, ' '));
 
-  const calorieTarget = calcCalorieTarget(profile);
+  const calorieTarget = calcCalorieTarget(profile, paceStatus.onPace ? 0 : paceStatus.kcalAdjustment);
 
   const ctx: CoachContext = {
     userName,
@@ -83,7 +85,10 @@ export default function AiScreen() {
     strongHabits,
     caloriesConsumed: totalCalories,
     calorieTarget,
-    customContextFields: getFieldsForPrompt(),
+    customContextFields:
+      zone !== 'other'
+        ? `${getFieldsForPrompt()}\nCurrently: ${zone === 'office' ? 'at the office' : 'at home'}`
+        : getFieldsForPrompt(),
   };
 
   const dailyBrief = generateDailyBrief(ctx);

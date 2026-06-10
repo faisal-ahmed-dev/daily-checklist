@@ -16,7 +16,11 @@ const KEYS = {
   lastCheckCount: '@steps/last_check_count',
   lastActiveTime: '@steps/last_active_time',
   lastInactivityNotif: '@steps/last_inactivity_notif',
+  lastMicroBreak: '@steps/last_microbreak',
 };
+
+/** Minutes between office-hours desk-break nudges. */
+const MICRO_BREAK_MIN = 50;
 
 const CHANNELS = {
   stepMilestone: STEP_MILESTONE_CHANNEL,
@@ -105,6 +109,33 @@ TaskManager.defineTask(STEP_INTEL_TASK, async () => {
           });
           await AsyncStorage.setItem(KEYS.lastInactivityNotif, String(Date.now()));
         }
+      }
+    }
+
+    // --- Office-hours desk micro-break (stand + glute squeezes) ---
+    const routineRaw = await AsyncStorage.getItem('@user/routine');
+    let officeStart = 8;
+    let officeEnd = 17;
+    if (routineRaw) {
+      try {
+        const r = JSON.parse(routineRaw);
+        if (typeof r?.officeStart?.hour === 'number') officeStart = r.officeStart.hour;
+        if (typeof r?.officeEnd?.hour === 'number') officeEnd = r.officeEnd.hour;
+      } catch {}
+    }
+    if (hourNow >= officeStart && hourNow < officeEnd) {
+      const lastMbRaw = await AsyncStorage.getItem(KEYS.lastMicroBreak);
+      const lastMb = lastMbRaw ? parseInt(lastMbRaw, 10) : 0;
+      if ((Date.now() - lastMb) / 60000 >= MICRO_BREAK_MIN) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🧍 Desk break',
+            body: 'Stand up: 10 glute squeezes + reach for the ceiling. 60 seconds resets your posture.',
+            sound: false,
+          },
+          trigger: { channelId: CHANNELS.inactivity, seconds: 1, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL },
+        });
+        await AsyncStorage.setItem(KEYS.lastMicroBreak, String(Date.now()));
       }
     }
 

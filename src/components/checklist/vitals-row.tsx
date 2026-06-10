@@ -8,10 +8,14 @@ type Props = {
   waterGoal: number;
   sleepHours: number | null;
   mood: MoodLevel | null;
+  nescafeCount: number;
+  nescafeKcal: number;
   onAddWater: () => void;
   onSetWater: (glasses: number) => void;
   onSetSleep: (hours: number) => void;
   onSetMood: (mood: MoodLevel) => void;
+  onAddNescafe: () => void;
+  onResetNescafe: () => void;
 };
 
 export function VitalsRow({
@@ -19,11 +23,30 @@ export function VitalsRow({
   waterGoal,
   sleepHours,
   mood,
+  nescafeCount,
+  nescafeKcal,
   onAddWater,
   onSetWater,
   onSetSleep,
   onSetMood,
+  onAddNescafe,
+  onResetNescafe,
 }: Props) {
+  function handleNescafeTap() {
+    Alert.alert(
+      'Had a Nescafe 3-in-1?',
+      nescafeCount > 0
+        ? `That's ${nescafeCount} today (~${nescafeKcal} kcal of sugar). Swap the next one for rong cha.`
+        : 'Log it — or better, swap for rong cha / black coffee.',
+      [
+        { text: 'Reset', style: 'destructive', onPress: onResetNescafe },
+        { text: 'Cancel', style: 'cancel' },
+        { text: '+1 Nescafe', onPress: onAddNescafe },
+      ],
+      { cancelable: true }
+    );
+  }
+
   function handleWaterLongPress() {
     if (Platform.OS === 'ios') {
       Alert.prompt(
@@ -108,6 +131,17 @@ export function VitalsRow({
         </Text>
         <Text style={styles.tileLabel}>mood</Text>
       </Pressable>
+
+      {/* Nescafe sugar counter — tap to log/reset */}
+      <Pressable
+        style={({ pressed }) => [styles.tile, nescafeCount > 0 && styles.tileWarn, pressed && styles.pressed]}
+        onPress={handleNescafeTap}>
+        <Text style={styles.tileIcon}>☕</Text>
+        <Text style={[styles.tileValue, nescafeCount > 0 && styles.tileValueWarn]}>
+          {nescafeCount > 0 ? `${nescafeCount} · ${nescafeKcal}` : '0'}
+        </Text>
+        <Text style={styles.tileLabel}>{nescafeCount > 0 ? 'kcal sugar' : 'nescafe'}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -128,6 +162,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  tileWarn: { backgroundColor: AppColors.amberSoft, borderColor: AppColors.amberLine },
   pressed: { opacity: 0.7 },
   tileIcon: { fontSize: 17 },
   tileValue: {
@@ -135,6 +170,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: AppColors.ink,
   },
+  tileValueWarn: { color: AppColors.amberDeep },
   tileLabel: {
     fontSize: 10,
     color: AppColors.muted,

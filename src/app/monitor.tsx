@@ -26,7 +26,7 @@ export default function MonitorScreen() {
   const [fontsLoaded] = useFonts({ Fraunces_600SemiBold, DMSans_400Regular });
   const [foodModal, setFoodModal] = useState(false);
 
-  const { latestWeight, weeklyChange, kgLost, kgToGo, bmi, goalWeight, startWeight } = useWeightLog();
+  const { latestWeight, weeklyChange, kgLost, kgToGo, bmi, goalWeight, startWeight, paceStatus, targetDate } = useWeightLog();
   const { glasses, goal: waterGoal } = useWater();
   const { log, sleepGoalMet, moodGoodOrGreat } = useDailyLogs();
   const { steps, goal: stepGoal, goalReached } = usePedometer();
@@ -46,7 +46,7 @@ export default function MonitorScreen() {
   });
 
   const tdeeEst = Math.round(calcTDEE(profile));
-  const calorieTarget = calcCalorieTarget(profile);
+  const calorieTarget = calcCalorieTarget(profile, paceStatus.onPace ? 0 : paceStatus.kcalAdjustment);
   const bmiInfo = bmi ? bmiCategory(bmi) : null;
 
   if (!fontsLoaded) return null;
@@ -162,6 +162,8 @@ export default function MonitorScreen() {
             goalKg={goalWeight}
             currentKg={latestWeight}
             weeklyChange={weeklyChange}
+            paceStatus={paceStatus}
+            targetDate={targetDate}
           />
         </SafeAreaView>
       </ScrollView>

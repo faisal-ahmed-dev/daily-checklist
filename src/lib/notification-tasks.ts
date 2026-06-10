@@ -1,4 +1,7 @@
 import * as Notifications from 'expo-notifications';
+import { storageGet } from '@/lib/storage';
+import { ROUTINE_KEY, DEFAULT_ROUTINE, routineSlotTimes, type UserRoutine } from '@/lib/user-routine';
+import { currentWeekIndex, getWorkout, workoutSummary } from '@/lib/workout-program';
 
 export type NotificationSlot = {
   id: string;
@@ -219,8 +222,21 @@ export async function scheduleNotifications(
     }),
   });
 
+  // Routine-derived defaults so slots fire at the user's real meal/office times.
+  const routine: UserRoutine = (await storageGet<UserRoutine>(ROUTINE_KEY)) ?? DEFAULT_ROUTINE;
+  const routineTimes = routineSlotTimes(routine);
+
+  // Precedence: user manual override > routine-derived default > hardcoded slot default.
   const timeFor = (id: string, slotHour: number, slotMinute: number): SlotTime =>
-    settings.times[id] ?? { hour: slotHour, minute: slotMinute };
+    settings.times[id] ?? routineTimes[id] ?? { hour: slotHour, minute: slotMinute };
+
+  // Name the actual exercises in the two workout reminders, from the current program week.
+  const workoutStart = await storageGet<string>('@workout/start');
+  const week = currentWeekIndex(workoutStart);
+  const bodyOverrides: Record<string, string> = {
+    'morning-exercise': `${workoutSummary(getWorkout(week, 'am'))}. ~5 min, just do it.`,
+    'night-exercise': `${workoutSummary(getWorkout(week, 'pm'))}. Belly & glute focus.`,
+  };
 
   // Built-in slots
   for (const slot of NOTIFICATION_SLOTS) {
@@ -240,7 +256,7 @@ export async function scheduleNotifications(
       if (!settings.enabledIds.includes(slot.id)) continue;
       const t = timeFor(slot.id, slot.hour, slot.minute);
       await Notifications.scheduleNotificationAsync({
-        content: { title: slot.title, body: slot.body, sound: true },
+        content: { title: slot.title, body: bodyOverrides[slot.id] ?? slot.body, sound: true },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
           hour: t.hour,

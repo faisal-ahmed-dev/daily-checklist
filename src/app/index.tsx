@@ -23,6 +23,10 @@ import { useStreak } from '@/hooks/use-streak';
 import { useWeightLog } from '@/hooks/use-weight-log';
 import { useNotifications } from '@/hooks/use-notifications';
 import { useAiCoach } from '@/hooks/use-ai-coach';
+import { useWorkout } from '@/hooks/use-workout';
+import { useNescafe } from '@/hooks/use-nescafe';
+import { useFoodLog } from '@/hooks/use-food-log';
+import { useEatingAgent } from '@/hooks/use-eating-agent';
 import { storageGet } from '@/lib/storage';
 import { greetingText, prettyDate } from '@/lib/date-utils';
 import { scheduleNotifications } from '@/lib/notification-tasks';
@@ -30,6 +34,8 @@ import { generateDailyBrief, fetchAiBrief, type CoachContext } from '@/lib/ai-br
 import { VitalsRow } from '@/components/checklist/vitals-row';
 import { StepsCard } from '@/components/checklist/steps-card';
 import { AccordionSection } from '@/components/checklist/checklist-section';
+import { WorkoutCard } from '@/components/workout/workout-card';
+import { EatingAgentCard } from '@/components/agent/eating-agent-card';
 import type { MoodLevel } from '@/hooks/use-daily-logs';
 
 const NAME_KEY = '@user/name';
@@ -78,7 +84,11 @@ export default function TodayScreen() {
   const { log, setSleep, setMood } = useDailyLogs();
   const { steps, goal: stepGoal, isAvailable: isStepTracking, goalReached: stepGoalReached, setManualSteps, setGoal: setStepGoal } = usePedometer();
   const { streak, markComplete } = useStreak();
-  const { latestWeight, goalWeight, startWeight, kgToGo } = useWeightLog();
+  const { latestWeight, goalWeight, startWeight, kgToGo, paceStatus } = useWeightLog();
+  const workout = useWorkout();
+  const nescafe = useNescafe();
+  const { entries: foodEntries } = useFoodLog();
+  const agent = useEatingAgent(foodEntries);
   const { settings: notifSettings } = useNotifications();
   const { config: aiConfig, hasApiKey } = useAiCoach();
   const briefScheduledRef = useRef(false);
@@ -195,6 +205,11 @@ export default function TodayScreen() {
                 {greetingText()}{userName ? `, ${userName}` : ''}
               </Text>
               <Text style={styles.date}>{prettyDate()}</Text>
+              {kgToGo > 0 && paceStatus.daysLeft > 0 && (
+                <Text style={[styles.deadline, !paceStatus.onPace && styles.deadlineBehind]}>
+                  {paceStatus.onPace ? '✓' : '⚠'} {paceStatus.daysLeft} days to goal · {kgToGo.toFixed(1)} kg left
+                </Text>
+              )}
             </View>
             {streak > 0 && (
               <View style={styles.streakBadge}>
@@ -246,16 +261,39 @@ export default function TodayScreen() {
             onSetGoal={setStepGoal}
           />
 
+          {/* Targeted belly + glute workout */}
+          <WorkoutCard
+            week={workout.week}
+            am={workout.am}
+            pm={workout.pm}
+            isDone={workout.isDone}
+            onToggle={workout.toggle}
+          />
+
           {/* Quick Vitals Row */}
           <VitalsRow
             waterGlasses={glasses}
             waterGoal={waterGoal}
             sleepHours={log.sleepHours}
             mood={log.mood}
+            nescafeCount={nescafe.count}
+            nescafeKcal={nescafe.kcal}
             onAddWater={addGlass}
             onSetWater={setGlassesTo}
             onSetSleep={setSleep}
             onSetMood={(m: MoodLevel) => setMood(m)}
+            onAddNescafe={nescafe.add}
+            onResetNescafe={nescafe.reset}
+          />
+
+          {/* Location-aware eating coach */}
+          <EatingAgentCard
+            zone={agent.zone}
+            zones={agent.zones}
+            hasZones={agent.hasZones}
+            suggestion={agent.suggestion}
+            busy={agent.busy}
+            onCapture={agent.captureZone}
           />
 
           {/* Accordion Checklist */}
@@ -376,6 +414,8 @@ const styles = StyleSheet.create({
     color: AppColors.ink,
   },
   date: { fontSize: 12, color: AppColors.muted, marginTop: 1 },
+  deadline: { fontSize: 11, color: AppColors.green, fontWeight: '700', marginTop: 3 },
+  deadlineBehind: { color: AppColors.amber },
   streakBadge: {
     backgroundColor: AppColors.amberSoft,
     borderWidth: 1,
